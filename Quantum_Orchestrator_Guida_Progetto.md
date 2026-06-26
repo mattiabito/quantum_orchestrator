@@ -115,7 +115,7 @@ Aggiorna questa tabella alla fine di ogni sessione:
 |---|---|---|
 | 24/06/2026 | Installato Python 3.12, VS Code, Qiskit. Creato account IBM Quantum. Primo run di orchestrator.py funzionante con Bell state. | Aggiungere noise model realistico |
 | 25/06/2026 | Rieseguito orchestrator.py con successo. Discusso visione multi-provider. Creata guida progetto. | Aggiungere noise model realistico ad Aer |
-| | | |
+| 25/06/2026 | Riscritto orchestrator.py e graph.py in inglese. Aggiunto noise model realistico IBM (gate error 0.1%, CNOT 1%, readout 2%). Misurata fidelità: ideale 100%, rumore ~95.3%, degradazione 4.69%. Creati .gitignore, requirements.txt, README.md. Inizializzato repo Git e caricato su GitHub privato. | Collegare QPU reale IBM |
 | | | |
 | | | |
 | | | |
