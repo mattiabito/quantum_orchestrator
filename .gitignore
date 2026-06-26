@@ -1,0 +1,21 @@
+# Virtual environment
+venv/
+
+# API keys — never push to GitHub
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Results and logs (generated automatically)
+results/
+
+# VS Code settings
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
