@@ -1,6 +1,6 @@
 # Quantum Orchestrator
 
-An open-source Python orchestrator that benchmarks quantum circuits across multiple backends — ideal simulator, noisy simulator, and real IBM QPU — measuring what most textbooks only describe in theory.
+An open source CLI tool that accepts any quantum circuit, autonomously selects the best available backend across IBM Quantum, AWS Braket and IonQ, executes the job with automatic fallback, and returns fidelity measurements and comparison graphs.
 
 ## Motivation
 
@@ -8,67 +8,160 @@ Most quantum computing literature describes backend selection, noise impact, and
 
 Built as an extension of my BSc thesis in Computer Engineering (University of Perugia, 2025–2026): *"Quantum Computing Perspectives in System Architecture and Cloud/Local Service Balancing"*.
 
-## What it does
+> Quantum computing today is not a physics problem. It is a systems architecture problem.
 
-- Accepts a quantum circuit and runs it on multiple backends
-- Selects the best backend automatically based on availability and quality
-- Measures and compares fidelity, execution time, and noise degradation
-- Logs all results and generates comparative charts
-- Falls back to simulator automatically when QPU queue exceeds threshold
+---
 
-## Current backends
+## Features
 
-| Backend | Provider | Cost |
+- **Autonomous backend selection** — picks the best available QPU based on queue time, no manual configuration needed
+- **Three execution strategies** — `responsive` (fast fallback), `accurate` (always QPU), `adaptive` (wait with timeout)
+- **Multi-provider** — IBM Quantum (superconducting), AWS Braket, IonQ (trapped-ion)
+- **Real QPU measurements** — fidelity, queue time, and execution time measured on real IBM hardware
+- **Custom circuit support** — pass any OpenQASM file as input
+- **Automatic fallback** — if QPU queue exceeds threshold, falls back to calibrated noisy simulator automatically
+
+---
+
+## Supported backends
+
+| Backend | Type | Provider |
 |---|---|---|
-| Ideal simulator | IBM Qiskit Aer | Free |
-| Noisy simulator (realistic IBM noise model) | IBM Qiskit Aer | Free |
-| Real QPU | IBM Quantum | Free tier |
-| AWS Braket simulator | Amazon | Free (coming soon) |
-| Azure Quantum simulator | Microsoft | Free (coming soon) |
+| `ideal_simulator` | Local Aer, no noise | IBM / Qiskit |
+| `noisy_simulator` | Local Aer, IBM noise model | IBM / Qiskit |
+| `ibm_qpu_*` | Real superconducting QPU | IBM Quantum |
+| `aws_local_simulator` | Local simulator | AWS Braket |
+| `ionq_simulator` | Trapped-ion noise model | IonQ via AWS Braket |
 
-## Results so far
+---
 
-Running a Bell state circuit (1024 shots):
+## Quick start
 
-| Backend | Fidelity | Noise degradation |
-|---|---|---|
-| Ideal simulator | 100.00% | — |
-| Noisy simulator (IBM noise model) | ~95.3% | ~4.7% |
-| Real IBM QPU | coming soon | coming soon |
+```bash
+git clone https://github.com/mattiabitocchi/quantum-orchestrator
+cd quantum-orchestrator
+pip install -r requirements.txt
+cp .env.example .env  # add your IBM API key
+python src/orchestrator.py
+```
+
+### Run your own circuit
+```bash
+python src/orchestrator.py --circuit my_circuit.qasm --strategy accurate --shots 2048
+```
+
+### Run built-in benchmarks
+```bash
+python src/orchestrator.py --circuit bell --strategy responsive
+python src/orchestrator.py --circuit ghz --strategy responsive
+python src/orchestrator.py --circuit vqe_h2 --strategy accurate
+```
+
+---
+
+## Results
+
+Bell state benchmark across all backends (latest run):
+
+| Backend | Fidelity | Queue | Exec |
+|---|---|---|---|
+| ideal_simulator | 100.00% | 0s | 0.02s |
+| noisy_simulator | ~95–97% | 0s | 0.01s |
+| ibm_qpu_ibm_marrakesh | 97.95–98.93% | 10–42s | 2s |
+| aws_local_simulator | 100.00% | 0s | 0.03s |
+| ionq_simulator | 98.14–99.41% | 0s | 0.5s |
+
+**Key finding:** real QPU execution takes 2 seconds. Queue time ranges from 10 seconds to 61 minutes on the same machine. Queue/execution ratio: up to 1822:1. This is the empirical demonstration of what the QCaaS literature describes only qualitatively.
+
+---
 
 ## Installation
 
-```bash
-git clone https://github.com/YOUR_USERNAME/quantum-orchestrator.git
-cd quantum-orchestrator
-python -m venv venv
-venv\Scripts\activate        # Windows
-pip install -r requirements.txt
-```
-
-## Usage
+**Requirements:** Python 3.12+, IBM Quantum account (free tier)
 
 ```bash
-# Run the orchestrator
-python src/orchestrator.py
-
-# Generate comparison charts
-python src/graph.py
+pip install qiskit qiskit-aer qiskit-ibm-runtime amazon-braket-sdk python-dotenv matplotlib
 ```
 
-## Configuration
+**IBM API key:** get it at https://quantum.ibm.com → Account → API Token
 
-Copy `.env.example` to `.env` and add your IBM Quantum API key:
+**.env file:**
+```
+IBM_API_KEY=your_token_here
+IBM_INSTANCE=your_instance_name
+```
 
-IBM_API_KEY=your_key_here
-IBM_INSTANCE=your_instance_here
+---
 
-## Project structure
+## Execution strategies
 
-quantum-orchestrator/
-├── src/
-│   ├── orchestrator.py     # Core logic: backend selector, job execution, logging
-│   └── graph.py            # Comparative charts generator
-├── results/                # Auto-generated logs and charts
-├── requirements.txt        # Python dependencies
-└── README.md
+| Strategy | Behavior | Best for |
+|---|---|---|
+| `responsive` | Fallback immediately if estimated queue exceeds threshold | Interactive apps, fast testing |
+| `accurate` | Always wait for real QPU, never fallback | Research, benchmark runs |
+| `adaptive` | Wait up to 30 minutes, then fallback to noisy simulator | Batch jobs, overnight runs |
+
+```python
+# Change strategy based on your use case
+adapter = select_backend("ibm_qpu", strategy="accurate")
+```
+
+---
+
+## Architecture
+
+The orchestrator uses a plugin architecture based on an abstract `BackendAdapter` class. Every provider implements the same interface — the orchestrator never knows which provider it is talking to.
+
+```
+backends/
+  base.py    — abstract BackendAdapter (is_available, estimated_queue_s, run, name)
+  ibm.py     — IBM superconducting: IBMSimulatorAdapter, IBMQPUAdapter, IBMQPUAdapterAdaptive
+  aws.py     — AWS Braket: AWSSimulatorAdapter
+  ionq.py    — IonQ trapped-ion: IonQSimulatorAdapter (via Braket density matrix)
+circuits/
+  bell.py    — Bell state (2 qubits) — base validation
+  ghz.py     — GHZ state (3 qubits) — medium complexity    [coming in v0.6]
+  vqe_h2.py  — VQE H₂ molecule — real use case             [coming in v0.6]
+```
+
+**Adding a new provider** is straightforward — implement `BackendAdapter` and register it in `orchestrator.py`. No other changes needed.
+
+---
+
+## Use cases
+
+### 1. Backend benchmarking
+Run the built-in circuits and get a comparative analysis across all providers. Useful for researchers and developers who want to know which backend best fits their problem before committing to a provider.
+
+### 2. Run your own circuit
+Pass any `.qasm` file and let the orchestrator handle provider selection, queue management, fallback, and result logging automatically. Useful for engineers who want to execute quantum algorithms without managing provider-specific SDKs.
+
+---
+
+## Roadmap
+
+- [x] IBM QPU real measurements with queue/execution time separation
+- [x] Multi-provider plugin architecture (IBM, AWS, IonQ)
+- [x] Autonomous backend selection (lowest queue, operational check)
+- [x] Three execution strategies (responsive, accurate, adaptive)
+- [x] 5-backend comparison graph with fidelity and exec time
+- [ ] GHZ and VQE H₂ circuits
+- [ ] CLI with --circuit, --strategy, --shots, --output flags
+- [ ] OpenQASM file input support
+- [ ] JSON structured output
+- [ ] Shots efficiency benchmark
+- [ ] Systematic benchmark dashboard
+
+---
+
+## Background
+
+This project empirically validates the architectural claims of the thesis *"Perspectives of Quantum Computing in the Architecture of Information Systems and in the Balancing between Cloud and Local Services"* (Bitocchi, University of Perugia, 2026).
+
+The thesis argued — from a systems engineering perspective — that quantum computing is primarily an orchestration problem: queue management, fallback strategies, backend selection, and observability matter more than raw qubit count. This project builds the orchestrator and measures what the thesis only described.
+
+---
+
+## License
+
+MIT
