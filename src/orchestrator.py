@@ -92,13 +92,23 @@ if __name__ == "__main__":
     log3     = run_job(adapter3, circuit)
     save_log(log3)
 
+    # Run 4 — AWS Braket local simulator
+    from backends.aws import AWSSimulatorAdapter
+    adapter4 = AWSSimulatorAdapter()
+    if adapter4.is_available():
+        log4 = run_job(adapter4, circuit)
+        save_log(log4)
+    else:
+        log4 = None
+        print("[ORCHESTRATOR] AWS Braket not available — skipping")
+
     # Plot
     from graph import plot_backend_comparison
-    plot_backend_comparison(log1, log2, log3)
+    plot_backend_comparison(log1, log2, log3, log4)
 
     # Summary
     print("\n=== Results summary ===")
-    for log in [log1, log2, log3]:
+    for log in [l for l in [log1, log2, log3, log4] if l]:
         print(f"{log['backend']:<35}  fidelity: {log['fidelity']*100:.2f}%  "
               f"exec: {log['execution_time_s']}s  queue: {log['queue_time_s']}s")
     print("\n=== Done ===")
