@@ -17,3 +17,11 @@ def compute_fidelity(counts: dict, shots: int) -> float:
     """
     correct = counts.get('00', 0) + counts.get('11', 0)
     return round(correct / shots, 4)
+
+def circuit_info() -> dict:
+    return {
+        "name":        "Bell state",
+        "n_qubits":    2,
+        "depth":       3,
+        "description": "Simplest 2-qubit entangled state. Base validation circuit."
+    }

@@ -1,0 +1,11 @@
+!!Da fare ad ogni fine sessione per 
+aggiornare e salvare tutto su github github
+
+git add .
+git commit -m "descrizione di cosa hai fatto in breve"
+git push
+
+
+per ripartire prox volta "Sto lavorando al progetto Quantum Orchestrator — orchestratore open source Python multi-provider (IBM, AWS, Azure). Ho già: orchestrator.py e graph.py funzionanti con simulatore ideale e rumore, repo GitHub privato. Oggi voglio: collegare la QPU reale IBM. Ecco il codice: [incolla orchestrator.py]""
+
+venv\Scripts\activate
