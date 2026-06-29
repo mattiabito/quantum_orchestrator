@@ -1,12 +1,12 @@
 import matplotlib.pyplot as plt
 
 
-def plot_backend_comparison(log1, log2, log3=None, log4=None):
+def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None):
     """
     Generates a bar chart comparing measurement results across backends.
     Supports 2, 3, or 4 backends.
     """
-    logs    = [l for l in [log1, log2, log3, log4] if l]
+    logs    = [l for l in [log1, log2, log3, log4, log5] if l]
     n_plots = len(logs)
 
     fig, axes = plt.subplots(1, n_plots, figsize=(6 * n_plots, 5))
@@ -23,6 +23,7 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None):
         ['#FF5722', '#FFCCBC', '#FFCCBC', '#FF5722'],  # orange — noisy
         ['#4CAF50', '#C8E6C9', '#C8E6C9', '#4CAF50'],  # green  — QPU
         ['#9C27B0', '#E1BEE7', '#E1BEE7', '#9C27B0'],  # purple — AWS
+        ['#F44336', '#FFCDD2', '#FFCDD2', '#F44336'],  # red    — Azure
     ]
 
     for ax, log, colors in zip(axes, logs, palette):
@@ -58,6 +59,10 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None):
     if log4:
         d_aws = (log1['fidelity'] - log4['fidelity']) * 100
         parts.append(f"Ideal→AWS: -{d_aws:.2f}%")
+    
+    if log5:
+        d_azure = (log1['fidelity'] - log5['fidelity']) * 100
+        parts.append(f"Ideal→Azure: -{d_azure:.2f}%")
 
     parts.append("Gate error: 0.1% (1Q) / 1% (CNOT)  |  Readout: 2%")
 

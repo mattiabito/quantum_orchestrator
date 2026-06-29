@@ -102,13 +102,23 @@ if __name__ == "__main__":
         log4 = None
         print("[ORCHESTRATOR] AWS Braket not available — skipping")
 
+    # Run 5 — Azure Quantum local simulator
+    from backends.azure import AzureSimulatorAdapter
+    adapter5 = AzureSimulatorAdapter()
+    if adapter5.is_available():
+        log5 = run_job(adapter5, circuit)
+        save_log(log5)
+    else:
+        log5 = None
+        print("[ORCHESTRATOR] Azure Quantum not available — skipping")
+
     # Plot
     from graph import plot_backend_comparison
-    plot_backend_comparison(log1, log2, log3, log4)
+    plot_backend_comparison(log1, log2, log3, log4, log5)
 
     # Summary
     print("\n=== Results summary ===")
-    for log in [l for l in [log1, log2, log3, log4] if l]:
+    for log in [l for l in [log1, log2, log3, log4, log5] if l]:
         print(f"{log['backend']:<35}  fidelity: {log['fidelity']*100:.2f}%  "
               f"exec: {log['execution_time_s']}s  queue: {log['queue_time_s']}s")
     print("\n=== Done ===")
