@@ -35,6 +35,7 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None):
         title = f"{label}\nFidelity: {log['fidelity']*100:.2f}%"
         if qtime > 0:
             title += f"  |  Queue: {qtime}s"
+        title += f"\nExec: {log['execution_time_s']}s"
         ax.set_title(title, fontsize=11)
         ax.set_xlabel("Measured state")
         ax.set_ylabel("Counts")

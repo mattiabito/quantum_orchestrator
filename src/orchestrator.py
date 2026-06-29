@@ -3,7 +3,7 @@ from backends.ibm import IBMSimulatorAdapter, IBMQPUAdapter
 import datetime
 import os
 
-QUEUE_MULTIPLIER   = 10   # fallback if queue > multiplier * estimated exec
+QUEUE_MULTIPLIER   = 20   # fallback if queue > multiplier * estimated exec
 ESTIMATED_EXEC_S   = 10   # conservative execution estimate (seconds)
 
 
@@ -102,15 +102,15 @@ if __name__ == "__main__":
         log4 = None
         print("[ORCHESTRATOR] AWS Braket not available — skipping")
 
-    # Run 5 — Azure Quantum local simulator
-    from backends.azure import AzureSimulatorAdapter
-    adapter5 = AzureSimulatorAdapter()
+    # Run 5 — IonQ trapped-ion simulator (via AWS Braket)
+    from backends.ionq import IonQSimulatorAdapter
+    adapter5 = IonQSimulatorAdapter()
     if adapter5.is_available():
         log5 = run_job(adapter5, circuit)
         save_log(log5)
     else:
         log5 = None
-        print("[ORCHESTRATOR] Azure Quantum not available — skipping")
+        print("[ORCHESTRATOR] IonQ simulator not available — skipping")
 
     # Plot
     from graph import plot_backend_comparison
