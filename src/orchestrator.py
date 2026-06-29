@@ -1,21 +1,30 @@
 from circuits.bell import create_bell_circuit
-from backends.ibm import IBMSimulatorAdapter, IBMQPUAdapter
+from backends.ibm import (IBMSimulatorAdapter, IBMQPUAdapter,
+                           IBMQPUAdapterAdaptive, connect_ibm,
+                           pick_best_ibm_backend)
 import datetime
 import os
 
 QUEUE_MULTIPLIER   = 20   # fallback if queue > multiplier * estimated exec
 ESTIMATED_EXEC_S   = 10   # conservative execution estimate (seconds)
+ABSOLUTE_TIMEOUT_S = 1800  # 30 minutes
 
-
-def select_backend(preference="ideal_simulator"):
+def select_backend(preference="ideal_simulator", strategy="responsive"):
     """
-    Returns the appropriate BackendAdapter based on preference.
-    Applies adaptive fallback for real QPU.
+    Returns the appropriate BackendAdapter based on preference and strategy.
 
     preference:
       "ideal_simulator"  — local Aer, no noise
       "noisy_simulator"  — local Aer, realistic IBM noise model
-      "ibm_qpu"          — real IBM QPU, autonomous selection + adaptive fallback
+      "ibm_qpu"          — real IBM QPU, autonomous selection
+
+    strategy (applies only to ibm_qpu):
+      "responsive"  — fallback immediately if queue > threshold.
+                      Best for: interactive apps, fast iteration, testing.
+      "accurate"    — always wait for real QPU, no fallback.
+                      Best for: research, when QPU fidelity is required.
+      "adaptive"    — wait up to ABSOLUTE_TIMEOUT_S, then fallback.
+                      Best for: batch jobs, overnight runs, best-effort quality.
     """
     if preference == "ideal_simulator":
         return IBMSimulatorAdapter(noisy=False)
@@ -24,26 +33,51 @@ def select_backend(preference="ideal_simulator"):
         return IBMSimulatorAdapter(noisy=True)
 
     elif preference == "ibm_qpu":
-        adapter = IBMQPUAdapter()
-
-        if not adapter.is_available():
-            print("[ORCHESTRATOR] IBM QPU unavailable — falling back to noisy simulator")
+        service = connect_ibm()
+        if service is None:
+            print("[ORCHESTRATOR] IBM unreachable — falling back to noisy simulator")
             return IBMSimulatorAdapter(noisy=True)
 
-        queue_s   = adapter.estimated_queue_s()
+        backend, estimated_exec_s, pending = pick_best_ibm_backend(service)
+
+        if backend is None:
+            print("[ORCHESTRATOR] No backend available — falling back to noisy simulator")
+            return IBMSimulatorAdapter(noisy=True)
+
+        queue_s   = pending * 60
         threshold = QUEUE_MULTIPLIER * ESTIMATED_EXEC_S
 
-        if queue_s > threshold:
-            print(f"[ORCHESTRATOR] Queue {queue_s}s > threshold {threshold}s "
-                  f"— falling back to noisy simulator")
-            return IBMSimulatorAdapter(noisy=True)
+        print(f"[ORCHESTRATOR] Strategy: {strategy.upper()}")
+        print(f"[ORCHESTRATOR] Estimated queue: {queue_s}s, threshold: {threshold}s")
 
-        print(f"[ORCHESTRATOR] Selected: {adapter.name} "
-              f"(estimated queue: {queue_s}s, threshold: {threshold}s)")
-        return adapter
+        if strategy == "responsive":
+            # Fallback immediately if queue exceeds threshold
+            if queue_s > threshold:
+                print(f"[ORCHESTRATOR] Queue too long — falling back to noisy simulator")
+                return IBMSimulatorAdapter(noisy=True)
+            print(f"[ORCHESTRATOR] Queue acceptable — selected: {backend.name}")
+            return IBMQPUAdapter(backend, service)
+
+        elif strategy == "accurate":
+            # Always use real QPU — never fallback, wait as long as needed
+            print(f"[ORCHESTRATOR] Accurate mode — will wait for real QPU regardless of queue")
+            return IBMQPUAdapter(backend, service)
+
+        elif strategy == "adaptive":
+            # Wait up to ABSOLUTE_TIMEOUT_S, then fallback
+            if queue_s > threshold:
+                print(f"[ORCHESTRATOR] Queue long ({queue_s}s) — will attempt QPU "
+                      f"with {ABSOLUTE_TIMEOUT_S//60}min timeout before fallback")
+            return IBMQPUAdapterAdaptive(backend, service)
+
+        else:
+            print(f"[ORCHESTRATOR] Unknown strategy '{strategy}' — using responsive")
+            if queue_s > threshold:
+                return IBMSimulatorAdapter(noisy=True)
+            return IBMQPUAdapter(backend, service)
 
     else:
-        print(f"[ORCHESTRATOR] Unknown preference '{preference}' — using ideal simulator")
+        print(f"[ORCHESTRATOR] Unknown preference — using ideal simulator")
         return IBMSimulatorAdapter(noisy=False)
 
 
@@ -88,7 +122,7 @@ if __name__ == "__main__":
     save_log(log2)
 
     # Run 3 — real IBM QPU (autonomous selection + adaptive fallback)
-    adapter3 = select_backend("ibm_qpu")
+    adapter3 = select_backend("ibm_qpu", strategy="responsive")
     log3     = run_job(adapter3, circuit)
     save_log(log3)
 
