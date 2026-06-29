@@ -11,13 +11,18 @@ load_dotenv()
 
 IBM_API_KEY  = os.getenv("IBM_API_KEY")
 IBM_INSTANCE = os.getenv("IBM_INSTANCE")
-QUEUE_THRESHOLD_SECONDS = 300  # fallback se coda > 5 minuti
+
+# Fallback if estimated queue > QUEUE_MULTIPLIER * estimated execution time
+QUEUE_MULTIPLIER   = 10
+# Absolute timeout — safety net regardless of queue estimate
+ABSOLUTE_TIMEOUT_S = 1800  # 30 minutes
 
 # ─────────────────────────────────────────
 # CIRCUIT
 # ─────────────────────────────────────────
 
 def create_bell_circuit():
+    """Creates a Bell state circuit — used as base test."""
     qc = QuantumCircuit(2, 2)
     qc.h(0)
     qc.cx(0, 1)
@@ -29,6 +34,12 @@ def create_bell_circuit():
 # ─────────────────────────────────────────
 
 def create_realistic_noise_model():
+    """
+    Noise model calibrated on typical IBM real hardware errors.
+    - Single-qubit gate error: ~0.1%
+    - Two-qubit gate error (CNOT): ~1%
+    - Readout error: ~2%
+    """
     noise_model = NoiseModel()
     noise_model.add_all_qubit_quantum_error(
         depolarizing_error(0.001, 1), ['h', 'x', 'rx', 'ry', 'rz']
@@ -42,30 +53,68 @@ def create_realistic_noise_model():
     return noise_model
 
 # ─────────────────────────────────────────
-# IBM QPU — STATUS
+# IBM — CONNECTION AND AUTONOMOUS SELECTION
 # ─────────────────────────────────────────
 
-def get_ibm_backend_status(service, backend_name="ibm_brisbane"):
+def connect_ibm():
+    """Connects to IBM Quantum and returns the service object."""
+    if not IBM_API_KEY:
+        return None
     try:
-        backend = service.backend(backend_name)
-        status  = backend.status()
-        pending = status.pending_jobs
-        estimated_queue_s = pending * 30
-        print(f"[QPU STATUS] {backend_name} — operational: {status.operational}, "
-              f"pending jobs: {pending}, estimated queue: ~{estimated_queue_s}s")
-        return backend, estimated_queue_s
+        service = QiskitRuntimeService(
+            channel="ibm_cloud",
+            token=IBM_API_KEY,
+            instance=IBM_INSTANCE
+        )
+        return service
     except Exception as e:
-        print(f"[QPU STATUS] Could not reach {backend_name}: {e}")
-        return None, float('inf')
+        print(f"[IBM] Connection failed: {e}")
+        return None
+
+def pick_best_ibm_backend(service):
+    """
+    Autonomously selects the best available IBM backend.
+    Criteria: operational + minimum pending jobs.
+    Returns (backend, estimated_exec_s, pending_jobs) or (None, 0, 0).
+    """
+    try:
+        candidates = []
+        for b in service.backends():
+            s = b.status()
+            if s.operational:
+                candidates.append((b, s.pending_jobs))
+
+        if not candidates:
+            print("[IBM] No operational backend available")
+            return None, 0, 0
+
+        candidates.sort(key=lambda x: x[1])
+        best, pending = candidates[0]
+
+        print(f"[IBM] Available backends (sorted by queue):")
+        for b, p in candidates:
+            marker = " <- selected" if b.name == best.name else ""
+            print(f"       {b.name:<30} pending: {p}{marker}")
+
+        return best, 10, pending  # 10s conservative execution estimate
+
+    except Exception as e:
+        print(f"[IBM] Backend selection error: {e}")
+        return None, 0, 0
 
 # ─────────────────────────────────────────
 # BACKEND SELECTOR
 # ─────────────────────────────────────────
 
-def select_backend(preference="ideal_simulator", ibm_backend_name="ibm_brisbane"):
+def select_backend(preference="ideal_simulator"):
     """
     Returns (backend, name, service).
-    service is None for simulators, QiskitRuntimeService for real QPU.
+    service is None for simulators.
+
+    preference:
+      "ideal_simulator"  — local Aer, no noise
+      "noisy_simulator"  — local Aer, realistic IBM noise model
+      "ibm_qpu"          — real IBM QPU, autonomous selection + adaptive fallback
     """
     if preference == "ideal_simulator":
         print("[BACKEND] Selected: ideal simulator (no noise)")
@@ -76,30 +125,29 @@ def select_backend(preference="ideal_simulator", ibm_backend_name="ibm_brisbane"
         return AerSimulator(noise_model=create_realistic_noise_model()), "noisy_simulator", None
 
     elif preference == "ibm_qpu":
-        if not IBM_API_KEY:
-            print("[BACKEND] IBM_API_KEY not found in .env — falling back to noisy simulator")
+        service = connect_ibm()
+        if service is None:
+            print("[BACKEND] IBM unreachable — falling back to noisy simulator")
             return AerSimulator(noise_model=create_realistic_noise_model()), "fallback_noisy_simulator", None
 
-        print("[BACKEND] Connecting to IBM Quantum (Cloud IAM)...")
-        try:
-            service = QiskitRuntimeService(
-                channel="ibm_cloud",
-                token=IBM_API_KEY,
-                instance=IBM_INSTANCE
-            )
-        except Exception as e:
-            print(f"[BACKEND] Connection failed: {e} — falling back to noisy simulator")
+        backend, estimated_exec_s, pending = pick_best_ibm_backend(service)
+
+        if backend is None:
+            print("[BACKEND] No backend available — falling back to noisy simulator")
             return AerSimulator(noise_model=create_realistic_noise_model()), "fallback_noisy_simulator", None
 
-        backend, queue_s = get_ibm_backend_status(service, ibm_backend_name)
+        # Adaptive fallback: estimated queue vs estimated execution time
+        estimated_queue_s = pending * 60  # conservative: 60s per pending job
+        threshold         = QUEUE_MULTIPLIER * estimated_exec_s
 
-        if backend is None or queue_s > QUEUE_THRESHOLD_SECONDS:
-            print(f"[BACKEND] Queue too long ({queue_s}s > {QUEUE_THRESHOLD_SECONDS}s) "
+        if estimated_queue_s > threshold:
+            print(f"[BACKEND] Estimated queue {estimated_queue_s}s > threshold {threshold}s "
                   f"— falling back to noisy simulator")
             return AerSimulator(noise_model=create_realistic_noise_model()), "fallback_noisy_simulator", None
 
-        print(f"[BACKEND] Selected: IBM QPU ({ibm_backend_name})")
-        return backend, f"ibm_qpu_{ibm_backend_name}", service
+        print(f"[BACKEND] Selected: real QPU ({backend.name}), "
+              f"pending: {pending}, queue threshold: {threshold}s")
+        return backend, f"ibm_qpu_{backend.name}", service
 
     else:
         print("[BACKEND] Unknown preference — falling back to ideal simulator")
@@ -110,11 +158,12 @@ def select_backend(preference="ideal_simulator", ibm_backend_name="ibm_brisbane"
 # ─────────────────────────────────────────
 
 def run_job(circuit, backend, backend_name, shots=1024, service=None):
+    """Runs the circuit on the selected backend and returns a result log."""
     print(f"\n--- Running job ---")
     print(f"Backend: {backend_name}")
     print(f"Shots:   {shots}")
 
-    t_start = time.time()
+    t_start     = time.time()
     is_real_qpu = (service is not None) and backend_name.startswith("ibm_qpu_")
 
     if is_real_qpu:
@@ -133,7 +182,7 @@ def run_job(circuit, backend, backend_name, shots=1024, service=None):
 
 
 def _run_on_simulator(circuit, backend, backend_name, shots):
-    t = time.time()
+    t      = time.time()
     result = backend.run(circuit, shots=shots).result()
     counts = result.get_counts()
     return {
@@ -147,23 +196,36 @@ def _run_on_simulator(circuit, backend, backend_name, shots):
 
 
 def _run_on_qpu(circuit, backend, backend_name, shots):
+    """
+    Runs on real IBM QPU using SamplerV2.
+    Measures queue time and execution time separately via job.metrics().
+    """
     transpiled = transpile(circuit, backend=backend, optimization_level=1)
-    print(f"[QPU] Circuit transpiled — depth: {transpiled.depth()}")
+    print(f"[QPU] Circuit transpiled — depth: {transpiled.depth()}, "
+          f"gates: {transpiled.size()}, qubits: {transpiled.num_qubits}")
 
     sampler  = Sampler(backend)
     t_submit = time.time()
     job      = sampler.run([transpiled], shots=shots)
     print(f"[QPU] Job submitted — ID: {job.job_id()}")
-    print("[QPU] Polling every 10s...")
+    print(f"[QPU] Polling every 10s (timeout: {ABSOLUTE_TIMEOUT_S // 60} min)...")
 
-    t_running = None
     while True:
-        status = job.status() 
-        print(f"[QPU] Status: {status}")
-        if status == "RUNNING" and t_running is None:
-            t_running = time.time()
+        status  = job.status()
+        elapsed = time.time() - t_submit
+        print(f"[QPU] Status: {status}  ({int(elapsed)}s elapsed)")
+
         if status in ("DONE", "ERROR", "CANCELLED"):
             break
+
+        if elapsed > ABSOLUTE_TIMEOUT_S:
+            print(f"[QPU] Absolute timeout reached ({ABSOLUTE_TIMEOUT_S}s) — cancelling job")
+            try:
+                job.cancel()
+            except Exception:
+                pass
+            raise RuntimeError("QPU job timed out — rerun with noisy simulator fallback")
+
         time.sleep(10)
 
     t_done = time.time()
@@ -171,14 +233,15 @@ def _run_on_qpu(circuit, backend, backend_name, shots):
     if status != "DONE":
         raise RuntimeError(f"QPU job ended with status: {status}")
 
-    pub_result  = job.result()[0]
-    register    = list(pub_result.data)[0]
-    counts      = dict(getattr(pub_result.data, register).get_counts())
-    
+    pub_result = job.result()[0]
+    register   = list(pub_result.data)[0]
+    counts     = dict(getattr(pub_result.data, register).get_counts())
+
+    # Precise timing from IBM metrics
     try:
-        metrics       = job.metrics()
-        exec_time     = round(metrics.get("usage", {}).get("seconds", 10), 1)
-        queue_time    = round((t_done - t_submit) - exec_time, 1)
+        metrics    = job.metrics()
+        exec_time  = round(metrics.get("usage", {}).get("seconds", 10), 1)
+        queue_time = round((t_done - t_submit) - exec_time, 1)
     except Exception:
         exec_time  = 10.0
         queue_time = round((t_done - t_submit) - exec_time, 1)
@@ -197,6 +260,10 @@ def _run_on_qpu(circuit, backend, backend_name, shots):
 # ─────────────────────────────────────────
 
 def compute_fidelity(counts, shots):
+    """
+    Bell state fidelity: ideal = 50% |00> + 50% |11>.
+    Fidelity = (counts['00'] + counts['11']) / shots
+    """
     correct = counts.get('00', 0) + counts.get('11', 0)
     return round(correct / shots, 4)
 
@@ -205,6 +272,7 @@ def compute_fidelity(counts, shots):
 # ─────────────────────────────────────────
 
 def save_log(log, path="results/log.txt"):
+    """Appends the job result log to file."""
     os.makedirs("results", exist_ok=True)
     with open(path, "a") as f:
         f.write(str(log) + "\n")
@@ -215,7 +283,7 @@ def save_log(log, path="results/log.txt"):
 # ─────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("=== Quantum Orchestrator v0.3 ===\n")
+    print("=== Quantum Orchestrator v0.4 ===\n")
 
     circuit = create_bell_circuit()
     print(circuit.draw())
@@ -230,10 +298,14 @@ if __name__ == "__main__":
     log2 = run_job(circuit, b2, n2, service=s2)
     save_log(log2)
 
-    # Run 3 — real IBM QPU (with automatic fallback)
-    b3, n3, s3 = select_backend("ibm_qpu", ibm_backend_name="ibm_kingston")
+    # Run 3 — real IBM QPU (autonomous selection + adaptive fallback)
+    b3, n3, s3 = select_backend("ibm_qpu")
     log3 = run_job(circuit, b3, n3, service=s3)
     save_log(log3)
+
+    # Plot comparison
+    from graph import plot_backend_comparison
+    plot_backend_comparison(log1, log2, log3)
 
     # Summary
     print("\n=== Results summary ===")
@@ -241,7 +313,3 @@ if __name__ == "__main__":
         print(f"{log['backend']:<35}  fidelity: {log['fidelity']*100:.2f}%  "
               f"exec: {log['execution_time_s']}s  queue: {log['queue_time_s']}s")
     print("\n=== Done ===")
-
-    # Graph
-    from graph import plot_backend_comparison
-    plot_backend_comparison(log1, log2, log3)
