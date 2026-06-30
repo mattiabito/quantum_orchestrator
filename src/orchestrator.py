@@ -8,6 +8,7 @@ from backends.aws  import AWSSimulatorAdapter
 from backends.ionq import IonQSimulatorAdapter
 import datetime
 import os
+import json
 
 QUEUE_MULTIPLIER   = 20   # fallback if queue > multiplier * estimated exec
 ESTIMATED_EXEC_S   = 10   # conservative execution estimate (seconds)
@@ -109,11 +110,14 @@ def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict:
     return result
 
 
-def save_log(log, path="results/log.txt"):
-    """Appends the job result log to file."""
-    os.makedirs("results", exist_ok=True)
+def save_log(log, path="results/log.json"):
+    """
+    Appends the job result log to a JSON file.
+    Each line is a valid JSON object (newline-delimited JSON / NDJSON format).
+    """
+    os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
     with open(path, "a") as f:
-        f.write(str(log) + "\n")
+        f.write(json.dumps(log) + "\n")
     print(f"[LOG] Saved to {path}")
 
 
