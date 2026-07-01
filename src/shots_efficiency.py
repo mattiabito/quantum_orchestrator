@@ -118,3 +118,4 @@ if __name__ == "__main__":
     ghz_std_trend  = [r["fidelity_std"] for r in ghz_results]
     print(f"\nBell std dev trend (128→4096 shots): {[round(s*100,3) for s in bell_std_trend]}")
     print(f"GHZ std dev trend (128→4096 shots):  {[round(s*100,3) for s in ghz_std_trend]}")
+    

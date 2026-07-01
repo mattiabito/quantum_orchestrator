@@ -81,6 +81,11 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
                 ax.text(bar.get_x() + bar.get_width() / 2,
                         bar.get_height() + shots * 0.008,
                         str(val), ha='center', va='bottom', fontsize=9)
+        
+        # Rotate x labels if too many states
+        if len(states) > 8:
+            ax.tick_params(axis='x', rotation=45)
+            ax.set_xticklabels(states, fontsize=7, rotation=45, ha='right')
 
     # Footer: fidelity deltas and noise model parameters
     parts = []

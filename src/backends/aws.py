@@ -1,3 +1,5 @@
+from matplotlib.pylab import angle
+
 from .base import BackendAdapter
 from circuits.bell import compute_fidelity
 import time
@@ -77,6 +79,9 @@ class AWSSimulatorAdapter(BackendAdapter):
                 braket_circuit.cnot(qubits[0], qubits[1])
             elif gate_name == 'x':
                 braket_circuit.x(qubits[0])
+            elif gate_name == 'ry':
+                angle = instruction.operation.params[0]
+                braket_circuit.ry(qubits[0], angle)
             elif gate_name == 'measure':
                 pass  # Braket measures all qubits automatically
             else:

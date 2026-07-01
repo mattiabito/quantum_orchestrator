@@ -1,11 +1,12 @@
 from circuits.bell import create_bell_circuit, compute_fidelity
 from circuits.ghz  import create_ghz_circuit, compute_fidelity_ghz
+from circuits.vqe_h2 import create_vqe_h2_circuit, compute_fidelity_vqe, compute_energy_h2
 from backends.ibm import (IBMSimulatorAdapter, IBMQPUAdapter,
                            IBMQPUAdapterAdaptive, connect_ibm,
                            pick_best_ibm_backend)
-from graph import plot_backend_comparison
 from backends.aws  import AWSSimulatorAdapter
 from backends.ionq import IonQSimulatorAdapter
+from graph import plot_backend_comparison
 import datetime
 import os
 import json
@@ -13,6 +14,7 @@ import json
 QUEUE_MULTIPLIER   = 20   # fallback if queue > multiplier * estimated exec
 ESTIMATED_EXEC_S   = 10   # conservative execution estimate (seconds)
 ABSOLUTE_TIMEOUT_S = 1800  # 30 minutes
+
 
 def select_backend(preference="ideal_simulator", strategy="responsive"):
     """
@@ -56,7 +58,6 @@ def select_backend(preference="ideal_simulator", strategy="responsive"):
         print(f"[ORCHESTRATOR] Estimated queue: {queue_s}s, threshold: {threshold}s")
 
         if strategy == "responsive":
-            # Fallback immediately if queue exceeds threshold
             if queue_s > threshold:
                 print(f"[ORCHESTRATOR] Queue too long — falling back to noisy simulator")
                 return IBMSimulatorAdapter(noisy=True)
@@ -64,12 +65,10 @@ def select_backend(preference="ideal_simulator", strategy="responsive"):
             return IBMQPUAdapter(backend, service)
 
         elif strategy == "accurate":
-            # Always use real QPU — never fallback, wait as long as needed
             print(f"[ORCHESTRATOR] Accurate mode — will wait for real QPU regardless of queue")
             return IBMQPUAdapter(backend, service)
 
         elif strategy == "adaptive":
-            # Wait up to ABSOLUTE_TIMEOUT_S, then fallback
             if queue_s > threshold:
                 print(f"[ORCHESTRATOR] Queue long ({queue_s}s) — will attempt QPU "
                       f"with {ABSOLUTE_TIMEOUT_S//60}min timeout before fallback")
@@ -130,9 +129,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--circuit",
-        choices=["bell", "ghz", "all"],
+        choices=["bell", "ghz", "vqe", "all"],
         default="all",
-        help="Circuit to run: bell, ghz, or all (default: all)"
+        help="Circuit to run: bell, ghz, vqe, or all (default: all)"
     )
     parser.add_argument(
         "--strategy",
@@ -146,15 +145,44 @@ if __name__ == "__main__":
         default=1024,
         help="Number of shots per job (default: 1024)"
     )
+    parser.add_argument(
+        "--qasm",
+        type=str,
+        default=None,
+        help="Path to a .qasm file to run on all backends. "
+             "Overrides --circuit if provided."
+    )
     args = parser.parse_args()
 
     print(f"=== Quantum Orchestrator v0.6 ===")
     print(f"Circuit: {args.circuit}  |  Strategy: {args.strategy}  |  Shots: {args.shots}\n")
 
-    run_bell = args.circuit in ("bell", "all")
-    run_ghz  = args.circuit in ("ghz", "all")
+    # ── QASM custom circuit — overrides --circuit if provided ─────
+    custom_circuit = None
+    custom_name    = None
 
-    from graph import plot_backend_comparison
+    if args.qasm:
+        from qiskit import QuantumCircuit as QC
+        print(f"[QASM] Loading circuit from: {args.qasm}")
+        try:
+            custom_circuit = QC.from_qasm_file(args.qasm)
+            custom_name    = args.qasm.replace("\\", "/").split("/")[-1]
+            print(f"[QASM] Circuit loaded: {custom_name}")
+            print(f"[QASM] Qubits: {custom_circuit.num_qubits}, "
+                  f"Depth: {custom_circuit.depth()}")
+            print(custom_circuit.draw())
+            run_bell = False
+            run_ghz  = False
+            run_vqe  = False
+        except Exception as e:
+            print(f"[QASM] Error loading file: {e}")
+            print("[QASM] Falling back to --circuit flag")
+            custom_circuit = None
+
+    if custom_circuit is None:
+        run_bell = args.circuit in ("bell", "all")
+        run_ghz  = args.circuit in ("ghz", "all")
+        run_vqe  = args.circuit in ("vqe", "all")
 
     # ── Bell state benchmark ──────────────────────────────────────
     if run_bell:
@@ -199,28 +227,110 @@ if __name__ == "__main__":
         print(ghz.draw())
 
         g_adapter1 = select_backend("ideal_simulator")
-        g_log1     = run_job(g_adapter1, ghz, shots=args.shots, fidelity_fn=compute_fidelity_ghz)
+        g_log1     = run_job(g_adapter1, ghz, shots=args.shots,
+                             fidelity_fn=compute_fidelity_ghz)
         save_log(g_log1)
 
         g_adapter2 = select_backend("noisy_simulator")
-        g_log2     = run_job(g_adapter2, ghz, shots=args.shots, fidelity_fn=compute_fidelity_ghz)
+        g_log2     = run_job(g_adapter2, ghz, shots=args.shots,
+                             fidelity_fn=compute_fidelity_ghz)
         save_log(g_log2)
 
         g_adapter3 = select_backend("ibm_qpu", strategy=args.strategy)
-        g_log3     = run_job(g_adapter3, ghz, shots=args.shots, fidelity_fn=compute_fidelity_ghz)
+        g_log3     = run_job(g_adapter3, ghz, shots=args.shots,
+                             fidelity_fn=compute_fidelity_ghz)
         save_log(g_log3)
 
         g_adapter4 = AWSSimulatorAdapter()
-        g_log4     = run_job(g_adapter4, ghz, shots=args.shots, fidelity_fn=compute_fidelity_ghz) if g_adapter4.is_available() else None
+        g_log4     = run_job(g_adapter4, ghz, shots=args.shots,
+                             fidelity_fn=compute_fidelity_ghz) if g_adapter4.is_available() else None
         if g_log4: save_log(g_log4)
 
         g_adapter5 = IonQSimulatorAdapter()
-        g_log5     = run_job(g_adapter5, ghz, shots=args.shots, fidelity_fn=compute_fidelity_ghz) if g_adapter5.is_available() else None
+        g_log5     = run_job(g_adapter5, ghz, shots=args.shots,
+                             fidelity_fn=compute_fidelity_ghz) if g_adapter5.is_available() else None
         if g_log5: save_log(g_log5)
 
         plot_backend_comparison(g_log1, g_log2, g_log3, g_log4, g_log5,
                                 title=f"GHZ State (3 qubits) — {args.shots} shots",
                                 filename="results/ghz_comparison.png")
+
+    # ── VQE H₂ benchmark ─────────────────────────────────────────
+    if run_vqe:
+        print("\n" + "=" * 50)
+        print("CIRCUIT: VQE H₂ (2 qubits — minimal ansatz)")
+        print("=" * 50)
+
+        vqe = create_vqe_h2_circuit()
+        print(vqe.draw())
+
+        v_adapter1 = select_backend("ideal_simulator")
+        v_log1     = run_job(v_adapter1, vqe, shots=args.shots,
+                             fidelity_fn=compute_fidelity_vqe)
+        v_log1["energy_hartree"] = compute_energy_h2(v_log1["counts"], args.shots)
+        save_log(v_log1)
+
+        v_adapter2 = select_backend("noisy_simulator")
+        v_log2     = run_job(v_adapter2, vqe, shots=args.shots,
+                             fidelity_fn=compute_fidelity_vqe)
+        v_log2["energy_hartree"] = compute_energy_h2(v_log2["counts"], args.shots)
+        save_log(v_log2)
+
+        v_adapter3 = select_backend("ibm_qpu", strategy=args.strategy)
+        v_log3     = run_job(v_adapter3, vqe, shots=args.shots,
+                             fidelity_fn=compute_fidelity_vqe)
+        v_log3["energy_hartree"] = compute_energy_h2(v_log3["counts"], args.shots)
+        save_log(v_log3)
+
+        v_adapter4 = AWSSimulatorAdapter()
+        v_log4     = run_job(v_adapter4, vqe, shots=args.shots,
+                             fidelity_fn=compute_fidelity_vqe) if v_adapter4.is_available() else None
+        if v_log4:
+            v_log4["energy_hartree"] = compute_energy_h2(v_log4["counts"], args.shots)
+            save_log(v_log4)
+
+        v_adapter5 = IonQSimulatorAdapter()
+        v_log5     = run_job(v_adapter5, vqe, shots=args.shots,
+                             fidelity_fn=compute_fidelity_vqe) if v_adapter5.is_available() else None
+        if v_log5:
+            v_log5["energy_hartree"] = compute_energy_h2(v_log5["counts"], args.shots)
+            save_log(v_log5)
+
+        plot_backend_comparison(v_log1, v_log2, v_log3, v_log4, v_log5,
+                                title=f"VQE H₂ (2 qubits — Z-basis) — {args.shots} shots",
+                                filename="results/vqe_comparison.png")
+
+    # ── Custom QASM circuit ───────────────────────────────────────
+    if custom_circuit is not None:
+        print("\n" + "=" * 50)
+        print(f"CIRCUIT: {custom_name} (custom QASM)")
+        print("=" * 50)
+
+        q_adapter1 = select_backend("ideal_simulator")
+        q_log1     = run_job(q_adapter1, custom_circuit, shots=args.shots)
+        save_log(q_log1)
+
+        q_adapter2 = select_backend("noisy_simulator")
+        q_log2     = run_job(q_adapter2, custom_circuit, shots=args.shots)
+        save_log(q_log2)
+
+        q_adapter3 = select_backend("ibm_qpu", strategy=args.strategy)
+        q_log3     = run_job(q_adapter3, custom_circuit, shots=args.shots)
+        save_log(q_log3)
+
+        q_adapter4 = AWSSimulatorAdapter()
+        q_log4     = run_job(q_adapter4, custom_circuit, shots=args.shots) if q_adapter4.is_available() else None
+        if q_log4: save_log(q_log4)
+
+        q_adapter5 = IonQSimulatorAdapter()
+        q_log5     = run_job(q_adapter5, custom_circuit, shots=args.shots) if q_adapter5.is_available() else None
+        if q_log5: save_log(q_log5)
+
+        plot_backend_comparison(
+            q_log1, q_log2, q_log3, q_log4, q_log5,
+            title=f"{custom_name} (custom) — {args.shots} shots",
+            filename="results/custom_comparison.png"
+        )
 
     # ── Results summary ───────────────────────────────────────────
     print("\n=== Results summary ===")
@@ -234,6 +344,22 @@ if __name__ == "__main__":
     if run_ghz:
         print("\nGHZ state:")
         for log in [l for l in [g_log1, g_log2, g_log3, g_log4, g_log5] if l]:
+            print(f"  {log['backend']:<35} fidelity: {log['fidelity']*100:.2f}%  "
+                  f"exec: {log['execution_time_s']}s  queue: {log['queue_time_s']}s")
+
+    if run_vqe:
+        print("\nVQE H₂ (Z-basis partial energy estimate):")
+        print(f"  Exact ground state:      -1.1372 Hartree (full, requires X/Y basis)")
+        print(f"  Z-basis estimate limit:  -0.7432 Hartree (this benchmark)")
+        print(f"  Missing XX+YY terms:     ~0.3940 Hartree")
+        for log in [l for l in [v_log1, v_log2, v_log3, v_log4, v_log5] if l]:
+            print(f"  {log['backend']:<35} "
+                  f"E = {log['energy_hartree']} Hartree  "
+                  f"fidelity: {log['fidelity']*100:.2f}%")
+
+    if custom_circuit is not None:
+        print(f"\nCustom QASM: {custom_name}")
+        for log in [l for l in [q_log1, q_log2, q_log3, q_log4, q_log5] if l]:
             print(f"  {log['backend']:<35} fidelity: {log['fidelity']*100:.2f}%  "
                   f"exec: {log['execution_time_s']}s  queue: {log['queue_time_s']}s")
 
