@@ -154,7 +154,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    print(f"=== Quantum Orchestrator v0.6 ===")
+    print(f"=== Quantum Orchestrator v1.0 ===")
     print(f"Circuit: {args.circuit}  |  Strategy: {args.strategy}  |  Shots: {args.shots}\n")
 
     # ── QASM custom circuit — overrides --circuit if provided ─────
