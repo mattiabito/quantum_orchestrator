@@ -41,7 +41,7 @@ class IonQSimulatorAdapter(BackendAdapter):
         return 0.0
 
     def run(self, circuit, shots=1024) -> dict:
-        from braket.circuits.noises import Depolarizing, BitFlip
+        from braket.circuits.noises import Depolarizing, TwoQubitDepolarizing, BitFlip
 
         # Convert Qiskit circuit to Braket
         braket_circuit = AWSSimulatorAdapter._qiskit_to_braket(circuit)
@@ -50,6 +50,18 @@ class IonQSimulatorAdapter(BackendAdapter):
         # Single-qubit depolarizing: 0.03%
         for q in range(circuit.num_qubits):
             braket_circuit.depolarizing(q, probability=0.0003)
+
+        # Two-qubit depolarizing on CNOT gates: 0.3%
+        # NOTE: added 2026-07-19 — the noise model previously applied only
+        # single-qubit + readout error, silently omitting the two-qubit
+        # channel promised in the class docstring. On entangled circuits
+        # (Bell/GHZ) the CNOT is the dominant error source, so this was
+        # very likely inflating IonQ fidelity relative to ibm.py, which
+        # already separated 1-qubit vs 2-qubit depolarizing error.
+        for instruction in circuit.data:
+            if instruction.operation.name == 'cx':
+                q0, q1 = [circuit.find_bit(q).index for q in instruction.qubits]
+                braket_circuit.two_qubit_depolarizing(q0, q1, probability=0.003)
 
         # Readout error: 0.5% bit flip on each qubit
         for q in range(circuit.num_qubits):

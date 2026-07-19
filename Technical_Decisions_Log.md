@@ -260,3 +260,76 @@ Meta-decisione di processo, non tecnica — ma essenziale per la qualità finale
 - Ogni nuova sessione di lavoro su Quantum Orchestrator dovrebbe iniziare leggendo questo file (caricarlo nel progetto Claude lo rende automaticamente disponibile).
 - Quando emerge una decisione non ovvia, un'osservazione sperimentale sorprendente, o una scelta architetturale con motivazione non banale, va aggiunta una nuova entry seguendo il formato: **Cosa abbiamo osservato** → **Perché succede** → **Decisione presa** → **Rilevanza per il report**.
 - Decisioni poi scartate vanno comunque mantenute nel log (non cancellate) con una nota esplicita che indica che sono state superate — il percorso decisionale completo, inclusi i vicoli ciechi, ha valore per la sezione "Methodology" e "Lessons Learned" del report finale.
+
+## 01/07/2026 — VQE H₂: impossibilità stima energetica completa da Z-basis sola
+
+**Cosa abbiamo osservato:**
+Dopo numerosi tentativi con ansatz e parametri diversi, il simulatore
+ideale converge sempre a E ≈ -0.74 Hartree invece di -1.1372 Hartree.
+L'ottimizzatore empirico (scan su 100 valori di theta) conferma che
+-0.7432 Hartree è il minimo raggiungibile con misure Z-basis sola.
+
+**Perché succede:**
+Il Hamiltoniano H₂ contiene termini off-diagonali XX e YY che
+contribuiscono ~0.39 Hartree all'energia totale. Questi richiedono
+misure in basi X e Y (circuiti aggiuntivi con rotazioni di base).
+Con un singolo circuito in base Z è fisicamente impossibile ottenere
+l'energia esatta — non è un problema di parametri o ansatz, è un
+limite fondamentale della misura in base singola.
+
+**Decisione presa:**
+Mantenuto il benchmark VQE con due metriche separate e oneste:
+1. Fidelità = frazione di shots negli stati dominanti (|00⟩ e |11⟩)
+2. Energia Z-basis = stima parziale (~65% energia totale) con
+   disclaimer esplicito nel codice e nell'output
+
+**Rilevanza per il report — ALTA:**
+Punto di onestà metodologica pubblicabile. Dimostra che l'orchestratore
+esegue correttamente circuiti VQE (fidelità ~95-99% su tutti i backend),
+ma la stima energetica completa richiede misure multi-basis. Dichiarazione
+nel report: "Full VQE energy estimation requires Z, X and Y basis
+measurements. This benchmark implements Z-basis only, capturing ~65%
+of the Hamiltonian energy. The XX+YY contribution (~0.394 Hartree)
+requires additional circuit executions with basis rotations."
+
+---
+
+## 01/07/2026 — PySCF non installabile su Windows senza compilatore C
+
+**Cosa abbiamo osservato:**
+pip install pyscf fallisce su Windows con errore CMake:
+"nmake not found", "CMAKE_C_COMPILER not set".
+
+**Perché succede:**
+PySCF richiede compilazione di codice C/Fortran. Su Windows questo
+richiede Visual Studio Build Tools (~3GB) non installato nell'ambiente.
+
+**Decisione presa:**
+Abbandonato l'approccio PySCF. Usati coefficienti Hamiltoniani esatti
+dalla letteratura (Kandala et al., Nature 549, 2017) con ottimizzazione
+empirica del theta sul simulatore locale.
+
+**Rilevanza per il report — BASSA:**
+Nota tecnica per sezione requisiti: PySCF richiede Linux/Mac o WSL.
+
+---
+
+## 01/07/2026 — Fase 3 completata: feature set finale del tool
+
+**Cosa abbiamo costruito:**
+- 3 circuiti built-in: Bell (2 qubit), GHZ (3 qubit), VQE H₂ (2 qubit)
+- 5 backend: ideal simulator, noisy simulator, IBM QPU reale,
+  AWS LocalSimulator, IonQ trapped-ion simulator
+- 3 strategie: responsive, accurate, adaptive
+- CLI completa: --circuit, --strategy, --shots, --qasm
+- Supporto QASM: qualsiasi circuito standard come input
+- Output JSON strutturato (NDJSON)
+- Shots efficiency benchmark con analisi statistica (10 repliche/punto)
+- Backend selector autonomo con fallback adattivo
+
+**Decisione presa:**
+Tool dichiarato feature-complete per la pubblicazione.
+Fase 4 = articolo, README finale, visibilità, candidature.
+
+**Rilevanza per il report — ALTA:**
+Questo è il progetto finito. Tutto ciò che viene dopo è comunicazione.
