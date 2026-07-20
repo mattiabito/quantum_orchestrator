@@ -316,6 +316,39 @@ Nota tecnica per sezione requisiti: PySCF richiede Linux/Mac o WSL.
 
 ---
 
+## 20/07/2026 — scipy.optimize bloccato da Windows Application Control, isolato da vqe_h2
+
+**Cosa abbiamo osservato:**
+`python orchestrator.py --circuit ghz` falliva con `ImportError: DLL load failed while importing pyduccfft` durante l'import di `scipy.optimize` dentro `vqe_h2.py`, nonostante GHZ non usi scipy in nessun modo.
+
+**Perché succede:**
+`orchestrator.py` importava tutti e tre i moduli circuiti (bell, ghz, vqe_h2) in cima al file, indipendentemente da `--circuit`. `vqe_h2.py` importa `scipy.optimize` a livello di modulo, e quell'import fa scattare il caricamento di `scipy.fft._duccfft` (componente nativo), bloccato da un criterio di controllo applicazioni di Windows (probabile Smart App Control). Il traceback si ferma esattamente su questo import — non su `backends.ibm` (che pure usa scipy indirettamente via `qiskit_ibm_runtime`) — coerente col fatto che Bell/GHZ su QPU reale avevano già funzionato in precedenza sulla stessa macchina.
+
+**Decisione presa:**
+Import di `circuits.vqe_h2` spostato da livello di modulo a dentro il blocco `if run_vqe:` in `orchestrator.py`, con try/except `ImportError` che disattiva solo il benchmark VQE (stampando un errore chiaro) invece di far crashare l'intero programma. Bell e GHZ sono ora completamente indipendenti dalla catena di dipendenze di VQE.
+
+**Rilevanza per il report — MEDIA:**
+Terzo problema di fragilità dell'ambiente Windows per questo progetto (dopo l'auth IBM Cloud IAM del 29/06 e PySCF del 01/07) — pattern ricorrente da menzionare nella sezione Requirements/Installation: Windows richiede più attenzione di Linux/Mac per le dipendenze scientifiche di questo tool. Il fix qui è di isolamento (un circuito rotto non blocca gli altri), non risolve il blocco a monte — per eseguire VQE resta necessario sbloccare scipy lato Windows (Smart App Control / Windows Defender Application Control) o reinstallare scipy con un backend FFT diverso.
+
+---
+
+## 20/07/2026 — GHZ benchmark completo su 5 backend: impatto reale del fix noise model IonQ
+
+**Cosa abbiamo osservato:**
+Primo run GHZ (3 qubit, 1024 shots) su tutti e 5 i backend dopo il fix del 19/07 al noise model IonQ:
+ideal_simulator 100.00% | noisy_simulator 93.36% | ibm_qpu_ibm_marrakesh (QPU reale) 97.66%, queue 10.6s, exec 2s | aws_local_simulator 100.00% | ionq_simulator 98.34%.
+
+**Perché è rilevante:**
+Con l'errore CNOT ora applicato, IonQ (98.34%) resta leggermente sopra la QPU IBM reale (97.66%) — gap di 0.68 punti percentuali, molto più ridotto di quanto osservato su Bell prima del fix (dove IonQ arrivava fino a 99.41% contro un minimo IBM reale di 94.34%, gap fino a ~5 punti). Il fix ha funzionato nella direzione attesa — ha ridotto il vantaggio artificiale di IonQ — ma non l'ha eliminato del tutto: coerente con l'ipotesi già loggata il 29/06 che i parametri di rumore IonQ restino comunque ottimistici rispetto a hardware fisico reale.
+
+**Decisione presa:**
+Nessuna ulteriore modifica al codice. Dato conservato come primo punto dati GHZ completo su 5 backend (vedi `results/ghz_comparison.png` e `results/log.json`).
+
+**Rilevanza per il report — ALTA:**
+Primo dato quantitativo che conferma l'efficacia del fix del 19/07 su un circuito diverso da quello usato per il debug (GHZ, non Bell) — buona evidenza che la correzione generalizza. Utile per una sezione "Methodology"/"Validation" dell'articolo: mostra il processo scoperta → fix → validazione con dati reali, non solo un'affermazione teorica.
+
+---
+
 ## 01/07/2026 — Fase 3 completata: feature set finale del tool
 
 **Cosa abbiamo costruito:**

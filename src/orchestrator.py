@@ -1,6 +1,5 @@
 from circuits.bell import create_bell_circuit, compute_fidelity
 from circuits.ghz  import create_ghz_circuit, compute_fidelity_ghz
-from circuits.vqe_h2 import create_vqe_h2_circuit, compute_fidelity_vqe, compute_energy_h2
 from backends.ibm import (IBMSimulatorAdapter, IBMQPUAdapter,
                            IBMQPUAdapterAdaptive, connect_ibm,
                            pick_best_ibm_backend, ABSOLUTE_TIMEOUT_S)
@@ -286,6 +285,15 @@ if __name__ == "__main__":
                                 filename="results/ghz_comparison.png")
 
     # ── VQE H₂ benchmark ─────────────────────────────────────────
+    if run_vqe:
+        # Imported here, not at module top — vqe_h2.py depends on scipy,
+        # which shouldn't be a hard requirement for running bell/ghz.
+        try:
+            from circuits.vqe_h2 import create_vqe_h2_circuit, compute_fidelity_vqe, compute_energy_h2
+        except ImportError as e:
+            print(f"[VQE] Could not import scipy — skipping VQE benchmark: {e}")
+            run_vqe = False
+
     if run_vqe:
         print("\n" + "=" * 50)
         print("CIRCUIT: VQE H₂ (2 qubits — minimal ansatz)")
