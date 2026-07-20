@@ -20,7 +20,6 @@ of this ansatz at optimal theta). Leakage into |01> and |10> indicates noise.
 
 from qiskit import QuantumCircuit
 import numpy as np
-from scipy.optimize import minimize_scalar
 
 
 # Exact 2-qubit Hamiltonian coefficients after parity mapping + Z2 reduction

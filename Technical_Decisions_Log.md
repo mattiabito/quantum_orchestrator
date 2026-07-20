@@ -347,6 +347,86 @@ Nessuna ulteriore modifica al codice. Dato conservato come primo punto dati GHZ 
 **Rilevanza per il report — ALTA:**
 Primo dato quantitativo che conferma l'efficacia del fix del 19/07 su un circuito diverso da quello usato per il debug (GHZ, non Bell) — buona evidenza che la correzione generalizza. Utile per una sezione "Methodology"/"Validation" dell'articolo: mostra il processo scoperta → fix → validazione con dati reali, non solo un'affermazione teorica.
 
+> **Correzione 20/07/2026:** il confronto puntuale IonQ 98.34% vs QPU 97.66% qui sotto era basato su un singolo run per backend — vedi entry di correzione più sotto ("Correzione metodologica: singolo run non basta per confrontare backend"). Il fix IonQ resta valido, il confronto numerico esatto no.
+
+---
+
+## 20/07/2026 — VQE H2 benchmark completo su 5 backend
+
+**Cosa abbiamo osservato:**
+Primo run VQE H2 (2 qubit, 1024 shots, theta ottimale trovato via scan: -0.03173 rad) su tutti e 5 i backend:
+ideal_simulator 100.00% (E=-0.7432) | noisy_simulator 96.09% (E=-0.7267) | ibm_qpu_ibm_marrakesh (QPU reale) 99.12% (E=-0.7262), queue 10.6s | aws_local_simulator 100.00% (E=-0.7432) | ionq_simulator 98.73% (E=-0.7444).
+
+**Decisione presa:**
+Nessuna modifica al codice. Dato conservato come primo punto dati VQE completo su 5 backend (vedi `results/vqe_comparison.png` e `results/log.json`).
+
+**Rilevanza per il report — ALTA:**
+Punto dati di riferimento (fidelity ~95-99% su tutti i backend, confermando la dichiarazione qualitativa già loggata l'01/07). Il confronto diretto col run GHZ va letto insieme alla correzione metodologica sotto.
+
+> **Correzione 20/07/2026:** la conclusione originale di questa entry ("QPU reale batte IonQ, direzione opposta a GHZ") è stata ritirata — basata su un singolo run per backend, differenza troppo piccola per essere distinguibile dal rumore di campionamento. Vedi entry di correzione più sotto.
+
+---
+
+## 20/07/2026 — Correzione metodologica: singolo run non basta per confrontare backend
+
+**Cosa abbiamo osservato:**
+Le due entry precedenti (GHZ e VQE) confrontavano IonQ vs QPU reale usando un singolo run per backend, concludendo che la direzione del confronto (chi ha fidelity più alta) dipendesse dal circuito. L'utente ha correttamente fatto notare che le differenze in gioco (0.4-0.7 punti percentuali) sono piccole abbastanza da poter essere semplice rumore di campionamento, non un effetto reale — esattamente l'errore metodologico già identificato e corretto il 29/06 sullo shots-efficiency (singolo run per punto → conclusioni premature).
+
+**Perché succede:**
+Stesso meccanismo del 29/06: i noise model sono stocastici, un singolo run a 1024 shots ha varianza di campionamento non trascurabile su differenze di questa dimensione. Non avevamo applicato qui la stessa disciplina (repliche multiple) già stabilita per lo shots-efficiency.
+
+**Decisione presa:**
+Rieseguiti GHZ e VQE con 10 repliche a 1024 shots su ideal/noisy/AWS/IonQ (i 4 backend simulati, eseguibili senza account IBM):
+
+| Backend | GHZ mean ± std | VQE mean ± std |
+|---|---|---|
+| noisy_simulator | 93.47% ± 0.83% | 95.29% ± 0.70% |
+| aws_local_simulator | 100.00% ± 0.00% | 100.00% ± 0.00% |
+| ionq_simulator | 97.72% ± 0.48% | 98.68% ± 0.41% |
+
+Confrontando con i singoli valori QPU reale già misurati (GHZ 97.66%, VQE 99.12%): su GHZ, QPU (97.66%) cade dentro la distribuzione IonQ (97.72% ± 0.48%) — nessuna differenza significativa. Su VQE, QPU (99.12%) è circa 1 deviazione standard sopra la media IonQ (98.68% ± 0.41%) — indicazione debole, non conclusiva, di una differenza reale (e comunque non replicata sul lato QPU). **La conclusione "la direzione del confronto dipende dal circuito" non è supportata dai dati — va ritirata.**
+
+**Rilevanza per il report — ALTA:**
+Punto di onestà metodologica da includere esplicitamente: confrontare backend richiede repliche anche per il benchmark systematico (non solo per lo shots-efficiency), specialmente quando le differenze sono piccole. Il QPU reale resta limitato a un singolo campione per run (costa quota reale ripeterlo) — va dichiarato come tale nel report, non usato per affermazioni di ranking assoluto senza repliche. Se si vuole un confronto IonQ-vs-QPU statisticamente solido, servono repliche anche sul QPU reale (costo: tempo di coda reale moltiplicato per il numero di repliche) — decisione da prendere con l'utente in base al budget di quota IBM disponibile.
+
+---
+
+## 20/07/2026 — Repliche QPU reale completate (5x GHZ, 5x VQE): IonQ-vs-QPU ora statisticamente supportato
+
+**Cosa abbiamo osservato:**
+L'utente ha eseguito manualmente 5 repliche GHZ e 5 repliche VQE con `--strategy accurate` (10 submission reali sulla QPU IBM). Il selector ha scelto backend diversi run per run (minimo pending jobs tra `ibm_fez`/`ibm_marrakesh`/`ibm_kingston`).
+
+GHZ — QPU (backend misto, n=5): 94.63% ± 1.70% (valori: 97.27, 94.04, 95.31, 93.26, 93.26 — 4 run su `ibm_fez`, 1 su `ibm_marrakesh`). IonQ (n=5, stesso venv utente): 97.89% ± 0.60%. Coda QPU: 10.6-116.6s (media 40.6s).
+
+VQE — QPU (backend misto, n=5): 97.30% ± 1.79% (valori: 95.51, 95.21, 98.83, 98.34, 98.63). Di cui **solo `ibm_fez` (n=2): 95.36% media** vs **solo `ibm_marrakesh` (n=3): 98.60% media**. IonQ (n=5): 98.83% ± 0.12%. Coda QPU: 10.6-33.4s (media 23.5s).
+
+**Perché è rilevante:**
+1. Su GHZ, con repliche vere il gap IonQ (97.89±0.60%) vs QPU (94.63±1.70%) è ora reale e statisticamente supportato (~1.9 deviazioni standard della QPU separano le medie) — conferma la direzione originariamente osservata (e poi correttamente ritirata per mancanza di repliche), stavolta con evidenza solida.
+2. Su VQE il quadro è più sfumato: la varianza della QPU (±1.79%) è quasi interamente spiegata da **quale macchina è stata selezionata**, non da rumore casuale — `ibm_marrakesh` (98.60% media) supera nettamente `ibm_fez` (95.36% media) sullo stesso circuito. Questo è di per sé un risultato interessante e coerente con l'argomento centrale della tesi: la selezione autonoma del backend ha un impatto misurabile sulle performance, non solo sul tempo di coda (già dimostrato il 29/06) ma anche sulla fidelity ottenuta.
+3. IonQ resta comunque il valore più alto e più stabile (std piccolo, 0.12-0.60%) in entrambi i circuiti — coerente col fatto che è un simulatore con noise model fisso, mentre la QPU riflette variabilità hardware reale (calibrazione, macchina selezionata, crosstalk).
+
+**Decisione presa:**
+Nessuna modifica al codice. Dati conservati come misura di riferimento per Bell/GHZ/VQE nel report. Cancellati (su richiesta dell'utente) gli script/file temporanei usati per la replica (`run_replicas.ps1`, `manual_replicas_ghz.txt`, `manual_replicas_vqe.txt`) — il codice del progetto non è stato toccato da questo test.
+
+**Rilevanza per il report — ALTA:**
+Sostituisce le entry precedenti (single-run, poi ritirate) con dati solidi da 5 repliche reali. Da includere nella sezione risultati: il gap IonQ-vs-QPU su GHZ è confermato reale (non rumore), mentre su VQE la fonte primaria di variabilità è la scelta del backend IBM, non il rumore casuale — supporto quantitativo diretto alla tesi su selezione autonoma del backend. Caveat da mantenere: n=5 non è il gold standard n=10 già usato per lo shots-efficiency, e tutte le misure sono state raccolte nella stessa sessione (~1 ora) — lo stato di calibrazione delle macchine IBM in quel momento non è necessariamente rappresentativo di altri momenti (vedi 29/06, coda `ibm_kingston` fino a 3645s in altre occasioni).
+
+---
+
+## 20/07/2026 — L'import scipy.optimize in vqe_h2.py non era mai usato
+
+**Cosa abbiamo osservato:**
+Verificando il blocco Windows Application Control (entry precedente), `from scipy.optimize import minimize_scalar` in `vqe_h2.py` non veniva mai chiamato nel resto del file — `_get_optimal_theta()` usa uno scan brute-force con numpy (`np.linspace` + `np.argmin`), non `minimize_scalar`.
+
+**Perché succede:**
+Import residuo, probabilmente da una versione precedente dell'implementazione che usava l'ottimizzatore scipy, poi sostituita dallo scan manuale senza rimuovere l'import.
+
+**Decisione presa:**
+Rimosso l'import morto. Verificato (con scipy.optimize forzatamente bloccato in sandbox) che il circuito VQE si crea con lo stesso theta ottimale di prima, senza toccare scipy.optimize in nessun modo — VQE ora dipende solo da numpy.
+
+**Rilevanza per il report — MEDIA:**
+Risolve il blocco Windows Application Control della entry precedente alla radice invece di limitarsi a isolarlo, e semplifica l'installazione per chi replica il progetto (una dipendenza pesante e fragile su Windows in meno).
+
 ---
 
 ## 01/07/2026 — Fase 3 completata: feature set finale del tool
