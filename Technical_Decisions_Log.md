@@ -168,6 +168,8 @@ Nessuna modifica al codice — il dato viene mantenuto e commentato esplicitamen
 **Rilevanza per il report — MEDIA:**
 Punto di onestà metodologica importante: va dichiarato chiaramente che il confronto "IonQ" nel progetto è un *simulatore con noise model calibrato*, non hardware fisico reale — a differenza del dato IBM che è hardware reale misurato. Il confronto diretto fidelità-vs-fidelità tra i due non è equivalente; va specificato nel report per evitare conclusioni fuorvianti ("IonQ è migliore di IBM" sarebbe un'affermazione non supportata dai dati raccolti).
 
+> **Aggiornamento 19/07/2026:** causa reale identificata — non solo parametri vendor ottimistici, ma un bug nel noise model (canale di errore a due qubit mancante). Vedi entry sotto. Dati IonQ da rimisurare.
+
 ---
 
 ## 29/06/2026 — Validazione: la complessità del circuito (Bell vs GHZ) come benchmark proxy
@@ -333,3 +335,35 @@ Fase 4 = articolo, README finale, visibilità, candidature.
 
 **Rilevanza per il report — ALTA:**
 Questo è il progetto finito. Tutto ciò che viene dopo è comunicazione.
+
+---
+
+## 19/07/2026 — Correzione: noise model IonQ mancava del canale di errore a due qubit
+
+**Cosa abbiamo osservato:**
+Code review ha rilevato che `ionq.py` dichiarava nel docstring un errore a due qubit CNOT di ~0.3% ("vs IBM ~1%"), ma il metodo `run()` applicava solo depolarizing single-qubit (0.03%) e bit-flip di readout (0.5%) — nessun canale di errore sul CNOT.
+
+**Perché succede:**
+Omissione risalente alla prima implementazione (29/06): il canale single-qubit + readout è stato scritto ma non è mai stato completato con il canale a due qubit corrispondente al valore già dichiarato nel docstring.
+
+**Decisione presa:**
+Aggiunto `braket_circuit.two_qubit_depolarizing(q0, q1, probability=0.003)` su ogni gate CNOT del circuito originale (iterando `circuit.data`), applicato dopo il depolarizing single-qubit e prima del bit-flip di readout. Verificato in sandbox isolata che il canale viene correttamente inserito nel circuito Braket risultante.
+
+**Rilevanza per il report — ALTA:**
+Corregge l'osservazione del 29/06 ("IonQ simulator supera la QPU IBM reale in fidelità"): quell'entry ipotizzava "parametri vendor ottimistici" come causa, ma la causa reale (almeno parziale) era un canale di errore mancante nel codice, non solo una scelta di parametri. Tutte le misure IonQ raccolte finora (README, Guida Progetto, tabella misure) sono state prodotte SENZA questo canale e vanno considerate obsolete — da rimisurare prima della pubblicazione.
+
+---
+
+## 19/07/2026 — Fidelity generica per circuiti QASM custom (Hellinger fidelity)
+
+**Cosa abbiamo osservato:**
+La fidelity per circuiti QASM caricati dall'utente (`--qasm`) usava sempre la formula di Bell (frazione di conteggi su `|00⟩`/`|11⟩`), priva di senso per circuiti con distribuzione ideale diversa da 2 stati dominanti equiprobabili. Stesso problema nel grafico comparativo: la linea "ideal count" assumeva sempre `shots/2` su 2 stati.
+
+**Perché succede:**
+`run_job()` applica di default `compute_fidelity` da `bell.py` quando non viene passata una `fidelity_fn` esplicita; il ramo QASM custom in `orchestrator.py` non ne passava una specifica.
+
+**Decisione presa:**
+Implementata `compute_fidelity_generic()` in `orchestrator.py`: fidelity di Hellinger F = (Σ√(pᵢ·qᵢ))² tra la distribuzione osservata e quella misurata sul run `ideal_simulator` dello stesso circuito, usato come riferimento invece che assunto. Scope limitato deliberatamente ai soli circuiti QASM custom — Bell/GHZ/VQE mantengono le formule esistenti (già corrette per quei tre casi) per non invalidare i dati storici già raccolti su 5 backend. `graph.py` aggiornato in parallelo: la linea di riferimento ora legge i conteggi reali di `log1` per stato invece di assumere 2 stati a `shots/2`, e l'asse Y usa headroom dinamico sul valore massimo osservato — generalizza a qualunque distribuzione senza toccare i valori di fidelity già misurati sui circuiti built-in.
+
+**Rilevanza per il report — MEDIA-ALTA:**
+Rende il "Caso d'uso 2 — Esegui il tuo circuito" del README onesto per qualunque QASM, non solo per circuiti Bell-like. Da menzionare nella sezione metodologica: "the tool reports fidelity for arbitrary circuits by measuring the ideal-simulator distribution directly rather than assuming its shape, and computing Hellinger fidelity against it." Verificato con test numerici sintetici (self-match=1.0, distribuzione uniforme vs concentrata=0.5, caso QASM multi-stato=0.91) e generazione grafico su circuito sintetico a 3 stati dominanti + 2 di leakage, senza errori. `results/custom_comparison.png` esistente è stato generato con la vecchia formula Bell — va rigenerato con un nuovo run `--qasm` prima della pubblicazione.

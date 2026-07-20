@@ -49,10 +49,19 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
         '#F44336',  # red    — IonQ
     ]
 
-    # Theoretical ideal count per state
-    # Bell and GHZ both have 2 ideal states → shots/2 each at default 1024 shots
-    shots           = log1.get('shots', 1024)
-    ideal_per_state = shots / 2
+    shots = log1.get('shots', 1024)
+
+    # Reference "ideal" count per state — read directly from the
+    # ideal_simulator run (log1) rather than assuming a fixed 2-state
+    # split (shots/2). That assumption happened to hold for Bell/GHZ/VQE
+    # (which do have 2 dominant ideal states) but breaks for arbitrary
+    # custom QASM circuits with a different ideal distribution. Reading
+    # it from log1 generalizes to any circuit.
+    ideal_counts = {s: log1['counts'].get(s, 0) for s in states}
+
+    # Dynamic y-axis headroom based on the tallest bar across all logs,
+    # instead of assuming a 2-state distribution tops out near shots/2.
+    max_count = max((v for log in logs for v in log['counts'].values()), default=shots)
 
     for ax, log, color in zip(axes, logs, palette):
         values = [log['counts'].get(s, 0) for s in states]
@@ -69,11 +78,12 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
 
         ax.set_xlabel("Measured state")
         ax.set_ylabel("Counts")
-        ax.set_ylim(0, shots * 0.65)  # dynamic headroom above bars
+        ax.set_ylim(0, max_count * 1.3)  # dynamic headroom above the tallest bar
 
-        # Dashed line at theoretical ideal count per state
-        ax.axhline(y=ideal_per_state, color='gray', linestyle='--',
-                   alpha=0.5, label=f'Theoretical ideal ({int(ideal_per_state)})')
+        # Reference markers at the ideal_simulator count for each state
+        ideal_values = [ideal_counts[s] for s in states]
+        ax.plot(states, ideal_values, 'o--', color='gray', alpha=0.6,
+                markersize=5, linewidth=1, label='Ideal (noiseless)')
 
         # Count labels above each bar
         for bar, val in zip(bars, values):

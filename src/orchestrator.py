@@ -85,6 +85,38 @@ def select_backend(preference="ideal_simulator", strategy="responsive"):
         return IBMSimulatorAdapter(noisy=False)
 
 
+def compute_fidelity_generic(counts: dict, shots: int,
+                             reference_counts: dict, reference_shots: int) -> float:
+    """
+    Generic fidelity for arbitrary circuits — Hellinger/Bhattacharyya-style
+    overlap between an observed distribution and a reference "ideal"
+    distribution:
+
+        F = (sum_i sqrt(p_i * q_i))^2
+
+    Unlike circuits.bell.compute_fidelity (which assumes exactly two
+    dominant basis states, e.g. |00> and |11>), this works for any
+    measurement outcome distribution. Used for custom QASM circuits,
+    where the ideal state isn't known in advance — the reference
+    distribution is measured directly on the noiseless ideal_simulator
+    run of the same circuit instead of being assumed.
+    """
+    all_states = set(counts) | set(reference_counts)
+    overlap = 0.0
+    for state in all_states:
+        p = counts.get(state, 0) / shots
+        q = reference_counts.get(state, 0) / reference_shots
+        overlap += (p * q) ** 0.5
+    return round(overlap ** 2, 4)
+
+
+def _make_generic_fidelity_fn(reference_counts: dict, reference_shots: int):
+    """Returns a fidelity_fn(counts, shots) closure bound to a reference distribution."""
+    return lambda counts, shots: compute_fidelity_generic(
+        counts, shots, reference_counts, reference_shots
+    )
+
+
 def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict:
     """
     Runs the circuit on the given adapter and returns the result log.
@@ -306,24 +338,37 @@ if __name__ == "__main__":
         print(f"CIRCUIT: {custom_name} (custom QASM)")
         print("=" * 50)
 
+        # ideal_simulator runs first and becomes the reference distribution
+        # for a generic fidelity metric on every other backend. Bell/GHZ/VQE
+        # use a fixed formula because their ideal state is known in advance
+        # (a dominant 2-state distribution); for an arbitrary QASM circuit
+        # we don't know the ideal distribution up front, so we measure it
+        # directly instead of assuming one.
         q_adapter1 = select_backend("ideal_simulator")
         q_log1     = run_job(q_adapter1, custom_circuit, shots=args.shots)
+        q_log1["fidelity"] = 1.0  # reference run — perfect match with itself by definition
         save_log(q_log1)
 
+        generic_fidelity_fn = _make_generic_fidelity_fn(q_log1["counts"], args.shots)
+
         q_adapter2 = select_backend("noisy_simulator")
-        q_log2     = run_job(q_adapter2, custom_circuit, shots=args.shots)
+        q_log2     = run_job(q_adapter2, custom_circuit, shots=args.shots,
+                             fidelity_fn=generic_fidelity_fn)
         save_log(q_log2)
 
         q_adapter3 = select_backend("ibm_qpu", strategy=args.strategy)
-        q_log3     = run_job(q_adapter3, custom_circuit, shots=args.shots)
+        q_log3     = run_job(q_adapter3, custom_circuit, shots=args.shots,
+                             fidelity_fn=generic_fidelity_fn)
         save_log(q_log3)
 
         q_adapter4 = AWSSimulatorAdapter()
-        q_log4     = run_job(q_adapter4, custom_circuit, shots=args.shots) if q_adapter4.is_available() else None
+        q_log4     = run_job(q_adapter4, custom_circuit, shots=args.shots,
+                             fidelity_fn=generic_fidelity_fn) if q_adapter4.is_available() else None
         if q_log4: save_log(q_log4)
 
         q_adapter5 = IonQSimulatorAdapter()
-        q_log5     = run_job(q_adapter5, custom_circuit, shots=args.shots) if q_adapter5.is_available() else None
+        q_log5     = run_job(q_adapter5, custom_circuit, shots=args.shots,
+                             fidelity_fn=generic_fidelity_fn) if q_adapter5.is_available() else None
         if q_log5: save_log(q_log5)
 
         plot_backend_comparison(
