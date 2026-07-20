@@ -11,7 +11,7 @@ def create_ghz_circuit(n_qubits: int = 3) -> QuantumCircuit:
     Ideal measurement: 50% |000⟩ + 50% |111⟩, zero all others.
     Fidelity = (counts['000'] + counts['111']) / shots
 
-    Compared to Bell state (2 qubits, depth 2):
+    Compared to Bell state (2 qubits, depth 3):
       - 3 qubits, depth 3
       - More sensitive to noise: errors on any qubit break the state
       - Better discriminator between backends
@@ -33,3 +33,12 @@ def compute_fidelity_ghz(counts: dict, shots: int, n_qubits: int = 3) -> float:
     all_ones  = '1' * n_qubits
     correct   = counts.get(all_zeros, 0) + counts.get(all_ones, 0)
     return round(correct / shots, 4)
+
+
+def circuit_info() -> dict:
+    return {
+        "name":        "GHZ state",
+        "n_qubits":    3,
+        "depth":       4,
+        "description": "Maximally entangled 3-qubit state. Medium-complexity benchmark circuit."
+    }

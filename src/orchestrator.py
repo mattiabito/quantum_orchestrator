@@ -3,7 +3,7 @@ from circuits.ghz  import create_ghz_circuit, compute_fidelity_ghz
 from circuits.vqe_h2 import create_vqe_h2_circuit, compute_fidelity_vqe, compute_energy_h2
 from backends.ibm import (IBMSimulatorAdapter, IBMQPUAdapter,
                            IBMQPUAdapterAdaptive, connect_ibm,
-                           pick_best_ibm_backend)
+                           pick_best_ibm_backend, ABSOLUTE_TIMEOUT_S)
 from backends.aws  import AWSSimulatorAdapter
 from backends.ionq import IonQSimulatorAdapter
 from graph import plot_backend_comparison
@@ -11,9 +11,7 @@ import datetime
 import os
 import json
 
-QUEUE_MULTIPLIER   = 20   # fallback if queue > multiplier * estimated exec
-ESTIMATED_EXEC_S   = 10   # conservative execution estimate (seconds)
-ABSOLUTE_TIMEOUT_S = 1800  # 30 minutes
+QUEUE_MULTIPLIER = 20  # fallback if queue > multiplier * estimated exec
 
 
 def select_backend(preference="ideal_simulator", strategy="responsive"):
@@ -52,7 +50,7 @@ def select_backend(preference="ideal_simulator", strategy="responsive"):
             return IBMSimulatorAdapter(noisy=True)
 
         queue_s   = pending * 60
-        threshold = QUEUE_MULTIPLIER * ESTIMATED_EXEC_S
+        threshold = QUEUE_MULTIPLIER * estimated_exec_s
 
         print(f"[ORCHESTRATOR] Strategy: {strategy.upper()}")
         print(f"[ORCHESTRATOR] Estimated queue: {queue_s}s, threshold: {threshold}s")
@@ -338,12 +336,9 @@ if __name__ == "__main__":
         print(f"CIRCUIT: {custom_name} (custom QASM)")
         print("=" * 50)
 
-        # ideal_simulator runs first and becomes the reference distribution
-        # for a generic fidelity metric on every other backend. Bell/GHZ/VQE
-        # use a fixed formula because their ideal state is known in advance
-        # (a dominant 2-state distribution); for an arbitrary QASM circuit
-        # we don't know the ideal distribution up front, so we measure it
-        # directly instead of assuming one.
+        # ideal_simulator runs first — its distribution is the reference
+        # for a generic fidelity metric on the other backends, since a
+        # custom circuit's ideal state isn't known in advance like Bell/GHZ/VQE
         q_adapter1 = select_backend("ideal_simulator")
         q_log1     = run_job(q_adapter1, custom_circuit, shots=args.shots)
         q_log1["fidelity"] = 1.0  # reference run — perfect match with itself by definition

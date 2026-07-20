@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 ABSOLUTE_TIMEOUT_S = 1800  # 30 minutes
+ESTIMATED_EXEC_S   = 10    # conservative IBM QPU execution estimate (seconds)
 
 
 # ─────────────────────────────────────────
@@ -50,7 +51,7 @@ def pick_best_ibm_backend(service):
         ]
         if not candidates:
             print("[IBM] No operational backend available")
-            return None, 10, 0
+            return None, ESTIMATED_EXEC_S, 0
 
         candidates.sort(key=lambda x: x[1])
         best, pending = candidates[0]
@@ -60,14 +61,14 @@ def pick_best_ibm_backend(service):
             marker = " <- selected" if b.name == best.name else ""
             print(f"       {b.name:<30} pending: {p}{marker}")
 
-        return best, 10, pending  # 10s conservative execution estimate
+        return best, ESTIMATED_EXEC_S, pending
 
     except Exception as e:
         print(f"[IBM] Backend selection error: {e}")
-        return None, 10, 0
+        return None, ESTIMATED_EXEC_S, 0
 
 
-def _run_on_qpu(circuit, backend, backend_name, shots, timeout_s=1800):
+def _run_on_qpu(circuit, backend, backend_name, shots, timeout_s=ABSOLUTE_TIMEOUT_S):
     """
     Core QPU execution logic — shared by all IBM QPU adapters.
     Raises RuntimeError on timeout or job failure.
@@ -208,26 +209,12 @@ class IBMQPUAdapter(BackendAdapter):
                            timeout_s=ABSOLUTE_TIMEOUT_S)
 
 
-class IBMQPUAdapterAdaptive(BackendAdapter):
+class IBMQPUAdapterAdaptive(IBMQPUAdapter):
     """
     Real IBM QPU — adaptive strategy.
     Waits up to ABSOLUTE_TIMEOUT_S, then falls back to noisy simulator automatically.
     Unlike IBMQPUAdapter, never raises — always returns a result.
     """
-
-    def __init__(self, backend, service):
-        self._backend = backend
-        self._service = service
-
-    @property
-    def name(self) -> str:
-        return f"ibm_qpu_{self._backend.name}" if self._backend else "ibm_qpu_unavailable"
-
-    def is_available(self) -> bool:
-        return self._backend is not None
-
-    def estimated_queue_s(self) -> float:
-        return 0.0
 
     def run(self, circuit, shots=1024) -> dict:
         try:

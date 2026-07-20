@@ -1,6 +1,5 @@
-from matplotlib.pylab import angle
-
 from .base import BackendAdapter
+from .braket_utils import qiskit_to_braket
 from circuits.bell import compute_fidelity
 import time
 
@@ -31,10 +30,8 @@ class AWSSimulatorAdapter(BackendAdapter):
         return 0.0
 
     def run(self, circuit, shots=1024) -> dict:
-        from braket.circuits import Circuit as BraketCircuit
-
         # Convert Qiskit circuit to Braket circuit
-        braket_circuit = self._qiskit_to_braket(circuit)
+        braket_circuit = qiskit_to_braket(circuit)
 
         t      = time.time()
         task   = self._device.run(braket_circuit, shots=shots)
@@ -56,35 +53,3 @@ class AWSSimulatorAdapter(BackendAdapter):
             "queue_time_s":     0,
             "fidelity":         compute_fidelity(counts, shots),
         }
-
-    @staticmethod
-    def _qiskit_to_braket(qiskit_circuit):
-        """
-        Converts a Qiskit QuantumCircuit to a Braket Circuit.
-        Handles H and CNOT gates — sufficient for Bell state.
-        For more complex circuits, use qiskit-braket-provider.
-        """
-        from braket.circuits import Circuit, gates
-
-        braket_circuit = Circuit()
-        n_qubits = qiskit_circuit.num_qubits
-
-        for instruction in qiskit_circuit.data:
-            gate_name = instruction.operation.name
-            qubits    = [qiskit_circuit.find_bit(q).index for q in instruction.qubits]
-
-            if gate_name == 'h':
-                braket_circuit.h(qubits[0])
-            elif gate_name == 'cx':
-                braket_circuit.cnot(qubits[0], qubits[1])
-            elif gate_name == 'x':
-                braket_circuit.x(qubits[0])
-            elif gate_name == 'ry':
-                angle = instruction.operation.params[0]
-                braket_circuit.ry(qubits[0], angle)
-            elif gate_name == 'measure':
-                pass  # Braket measures all qubits automatically
-            else:
-                print(f"[AWS] Unsupported gate: {gate_name} — skipped")
-
-        return braket_circuit

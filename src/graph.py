@@ -51,16 +51,12 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
 
     shots = log1.get('shots', 1024)
 
-    # Reference "ideal" count per state — read directly from the
-    # ideal_simulator run (log1) rather than assuming a fixed 2-state
-    # split (shots/2). That assumption happened to hold for Bell/GHZ/VQE
-    # (which do have 2 dominant ideal states) but breaks for arbitrary
-    # custom QASM circuits with a different ideal distribution. Reading
-    # it from log1 generalizes to any circuit.
+    # Reference "ideal" count per state — read from the ideal_simulator
+    # run (log1) instead of assuming a fixed 2-state split, so it works
+    # for any circuit, not just Bell/GHZ/VQE.
     ideal_counts = {s: log1['counts'].get(s, 0) for s in states}
 
-    # Dynamic y-axis headroom based on the tallest bar across all logs,
-    # instead of assuming a 2-state distribution tops out near shots/2.
+    # Dynamic y-axis headroom based on the tallest bar across all logs
     max_count = max((v for log in logs for v in log['counts'].values()), default=shots)
 
     for ax, log, color in zip(axes, logs, palette):
