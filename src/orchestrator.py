@@ -1,3 +1,13 @@
+import sys
+
+# Force UTF-8 stdout/stderr regardless of the terminal/redirect target.
+# Without this, Windows falls back to the system codepage (cp1252) whenever
+# output isn't an interactive console (e.g. redirected to a file), which
+# can't encode the circuit-diagram box-drawing characters or symbols like
+# "H2" and crashes with UnicodeEncodeError.
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 from circuits.bell import create_bell_circuit, compute_fidelity
 from circuits.ghz  import create_ghz_circuit, compute_fidelity_ghz
 from backends.ibm import (IBMSimulatorAdapter, IBMQPUAdapter,
@@ -6,6 +16,7 @@ from backends.ibm import (IBMSimulatorAdapter, IBMQPUAdapter,
 from backends.aws  import AWSSimulatorAdapter
 from backends.ionq import IonQSimulatorAdapter
 from graph import plot_backend_comparison
+from paths import RESULTS_DIR
 import datetime
 import os
 import json
@@ -138,11 +149,12 @@ def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict:
     return result
 
 
-def save_log(log, path="results/log.json"):
+def save_log(log, path=None):
     """
     Appends the job result log to a JSON file.
     Each line is a valid JSON object (newline-delimited JSON / NDJSON format).
     """
+    path = path or os.path.join(RESULTS_DIR, "log.json")
     os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
     with open(path, "a") as f:
         f.write(json.dumps(log) + "\n")
@@ -244,7 +256,7 @@ if __name__ == "__main__":
 
         plot_backend_comparison(b_log1, b_log2, b_log3, b_log4, b_log5,
                                 title=f"Bell State (2 qubits) — {args.shots} shots",
-                                filename="results/bell_comparison.png")
+                                filename=os.path.join(RESULTS_DIR, "bell_comparison.png"))
 
     # ── GHZ state benchmark ───────────────────────────────────────
     if run_ghz:
@@ -282,7 +294,7 @@ if __name__ == "__main__":
 
         plot_backend_comparison(g_log1, g_log2, g_log3, g_log4, g_log5,
                                 title=f"GHZ State (3 qubits) — {args.shots} shots",
-                                filename="results/ghz_comparison.png")
+                                filename=os.path.join(RESULTS_DIR, "ghz_comparison.png"))
 
     # ── VQE H₂ benchmark ─────────────────────────────────────────
     if run_vqe:
@@ -336,7 +348,7 @@ if __name__ == "__main__":
 
         plot_backend_comparison(v_log1, v_log2, v_log3, v_log4, v_log5,
                                 title=f"VQE H₂ (2 qubits — Z-basis) — {args.shots} shots",
-                                filename="results/vqe_comparison.png")
+                                filename=os.path.join(RESULTS_DIR, "vqe_comparison.png"))
 
     # ── Custom QASM circuit ───────────────────────────────────────
     if custom_circuit is not None:
@@ -377,7 +389,7 @@ if __name__ == "__main__":
         plot_backend_comparison(
             q_log1, q_log2, q_log3, q_log4, q_log5,
             title=f"{custom_name} (custom) — {args.shots} shots",
-            filename="results/custom_comparison.png"
+            filename=os.path.join(RESULTS_DIR, "custom_comparison.png")
         )
 
     # ── Results summary ───────────────────────────────────────────

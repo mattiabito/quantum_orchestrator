@@ -6,9 +6,11 @@ to average out simulator stochastic noise and reveal true convergence.
 from circuits.bell import create_bell_circuit, compute_fidelity
 from circuits.ghz   import create_ghz_circuit, compute_fidelity_ghz
 from backends.ibm   import IBMSimulatorAdapter
+from paths import RESULTS_DIR
 import matplotlib.pyplot as plt
 import numpy as np
 import json
+import os
 import time
 
 SHOT_VALUES = [128, 256, 512, 1024, 2048, 4096]
@@ -53,10 +55,11 @@ def run_shots_efficiency(circuit, fidelity_fn, label, noisy: bool = True):
     return results
 
 
-def plot_comparison(bell_results, ghz_results, filename="results/shots_efficiency.png"):
+def plot_comparison(bell_results, ghz_results, filename=None):
     """
     Plots mean fidelity vs shots with error bars (std dev) for both circuits.
     """
+    filename = filename or os.path.join(RESULTS_DIR, "shots_efficiency.png")
     fig, ax = plt.subplots(figsize=(9, 6))
     fig.suptitle("Quantum Orchestrator — Shots Efficiency: Bell vs GHZ",
                  fontsize=14, fontweight='bold')
@@ -89,7 +92,8 @@ def plot_comparison(bell_results, ghz_results, filename="results/shots_efficienc
     plt.show()
 
 
-def save_results(results, path="results/shots_efficiency.json"):
+def save_results(results, path=None):
+    path = path or os.path.join(RESULTS_DIR, "shots_efficiency.json")
     with open(path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"[LOG] Saved to {path}")

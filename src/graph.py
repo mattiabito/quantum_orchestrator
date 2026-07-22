@@ -1,10 +1,11 @@
 import matplotlib.pyplot as plt
 import os
+from paths import RESULTS_DIR
 
 
 def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
                             title="Backend Comparison",
-                            filename="results/backend_comparison.png"):
+                            filename=None):
     """
     Generates a bar chart comparing measurement results across backends.
     Supports 2 to 5 backends dynamically.
@@ -16,8 +17,10 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
       log4      — AWS local simulator (optional)
       log5      — IonQ simulator (optional)
       title     — chart subtitle, shown after "Quantum Orchestrator —"
-      filename  — output path for the saved PNG
+      filename  — output path for the saved PNG (defaults to results/backend_comparison.png at the project root)
     """
+    filename = filename or os.path.join(RESULTS_DIR, "backend_comparison.png")
+
     # Collect only non-None logs
     logs    = [l for l in [log1, log2, log3, log4, log5] if l]
     n_plots = len(logs)
@@ -155,4 +158,4 @@ if __name__ == "__main__":
 
     plot_backend_comparison(log_ideal, log_noisy, log_qpu, log_aws, log_ionq,
                             title="Bell State (2 qubits)",
-                            filename="results/bell_comparison.png")
+                            filename=os.path.join(RESULTS_DIR, "bell_comparison.png"))
