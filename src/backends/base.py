@@ -5,7 +5,7 @@ from qiskit import QuantumCircuit
 class BackendAdapter(ABC):
     """
     Abstract base class for all backend providers.
-    Every provider (IBM, AWS, Azure) must implement these methods.
+    Every provider (IBM, AWS, IonQ) must implement these methods.
     The orchestrator only speaks to this interface — never to a specific provider.
     """
 

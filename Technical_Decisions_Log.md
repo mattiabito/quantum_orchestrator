@@ -515,3 +515,44 @@ Rende il "Caso d'uso 2 — Esegui il tuo circuito" del README onesto per qualunq
 
 **Limite intrinseco — da dichiarare esplicitamente nel report:**
 La fidelity generica dipende dal poter eseguire il circuito su `ideal_simulator` locale come riferimento. Per circuiti QASM grandi o profondi, questo riferimento diventa esso stesso costoso da calcolare (simulazione classica di stato pieno, scaling esponenziale nel numero di qubit) — quindi il metodo generalizza la *definizione* di fidelity a qualunque circuito, ma non rimuove il limite fondamentale della simulazione classica come termine di paragone. Non è un limite nuovo introdotto da questa fix: Bell/GHZ/VQE hanno già oggi lo stesso vincolo (girano anch'essi su `ideal_simulator` come baseline), ma qui va dichiarato esplicitamente perché il caso d'uso 2 del README promette di accettare "qualsiasi circuito QASM personalizzato" senza qualificare questo limite. Citazione utile per l'articolo: "fidelity for arbitrary circuits is bounded by the tractability of classically simulating the same circuit as a noiseless reference — a limitation shared with any classical-simulation-based benchmark, not specific to this tool."
+
+---
+
+## 22/07/2026 — Hardening pre-pubblicazione: path assoluti, encoding, requirements.txt, repo hygiene
+
+**Cosa abbiamo osservato:**
+Passata di verifica end-to-end richiesta esplicitamente ("controllare ogni angolo e sfumatura prima di andare avanti") ha trovato quattro problemi latenti, mai emersi prima perché mai testati nelle condizioni giuste: (1) lo stdout crashava con `UnicodeEncodeError` su Windows quando l'output veniva rediretto su file invece che stampato su console interattiva; (2) lanciare lo script da dentro `src/` invece che dalla root del progetto ricreava silenziosamente una cartella `src/results/` duplicata — stesso sintomo già ripulito manualmente il 29-30/06 senza allora capirne la causa; (3) `requirements.txt` era un dump grezzo di `pip freeze` (~150 pacchetti, incluso Azure Quantum SDK abbandonato e tool Jupyter mai usati) ed era codificato in UTF-16LE invece di UTF-8; (4) `Quantum_Orchestrator_Guida_Progetto.md` era elencato in `.gitignore` ma restava comunque tracciato da git (committato prima di essere aggiunto al gitignore), quindi sarebbe finito nel repo pubblico nonostante l'intento contrario.
+
+**Perché succede:**
+(1) Windows usa la codepage di sistema (cp1252) per stdout quando non è collegato a una console interattiva, incapace di codificare i caratteri box-drawing dei diagrammi circuitali. (2) tutti i path `results/...` in `orchestrator.py`, `graph.py`, `shots_efficiency.py` erano relativi alla working directory invece che ancorati alla posizione dello script. (3)/(4) entrambi retaggi di comandi PowerShell (`pip freeze >`, commit fatto prima del gitignore) mai rivisti dopo.
+
+**Decisione presa:**
+(1) `sys.stdout.reconfigure(encoding="utf-8")` / `sys.stderr.reconfigure(encoding="utf-8")` a inizio `orchestrator.py`. (2) creato `src/paths.py` con `RESULTS_DIR` assoluto ancorato a `__file__`, adottato nei tre file. (3) `requirements.txt` riscritto con i soli 7 pacchetti realmente importati (verificato via grep), versioni pinnate, UTF-8 pulito. (4) `git rm --cached Quantum_Orchestrator_Guida_Progetto.md` — il file resta sul disco e nel `.gitignore`, ma esce dal tracking futuro. Aggiunto anche `.gitattributes` (`* text=auto`) per normalizzare CRLF/LF tra Windows e ambienti Linux/CI, standard per repo pubblici multipiattaforma.
+
+**Rilevanza per il report — ALTA:**
+Tutti e quattro sono bug di riproducibilità reali che avrebbero colpito chiunque provasse a clonare ed eseguire il repo pubblico da zero su Windows (il target realistico per un tool che confronta backend quantistici) — non solo dettagli estetici. Da menzionare nella sezione metodologica/limitazioni: testare sempre gli strumenti nelle condizioni in cui un utente reale li userà (redirect su file, cartella di lavoro diversa, `pip install` pulito), non solo nelle condizioni in cui sono stati sviluppati.
+
+---
+
+## 22/07/2026 — Conversione Qiskit→Braket: da skip silenzioso a conversione generica + fail loud
+
+**Cosa abbiamo osservato:**
+`braket_utils.qiskit_to_braket()` (usato da AWS e IonQ) convertiva solo 4 gate (h, x, cx, ry). Qualunque altro gate — anche banali come S, T, Z, presenti in praticamente ogni circuito non-Bell — veniva silenziosamente scartato con una singola riga di print, senza interrompere l'esecuzione. Il circuito eseguito su AWS/IonQ era quindi diverso da quello caricato dall'utente, ma la fidelity generica (Hellinger, introdotta il 19/07) veniva comunque calcolata e mostrata come se il confronto fosse valido. Riprodotto con un test diretto: un circuito con h/s/t/z/cx risultava, lato Braket, con s/t/z silenziosamente assenti. Il path IBM (ideal/noisy simulator via Aer, QPU reale via transpile) non ha questo problema — non passa da questa funzione.
+
+**Perché succede:**
+La funzione era stata scritta deliberatamente minimale, sufficiente solo per Bell/GHZ/VQE H2 (l'unico uso previsto all'inizio). Quando è stato aggiunto il supporto per QASM arbitrari (19/07), la funzione di conversione non è stata ampliata di conseguenza — il README promette "pass any OpenQASM file" ma la conversione reale copriva un sottoinsieme molto più piccolo, senza nessun segnale d'errore per l'utente.
+
+**Decisione presa:**
+Riprogettata la conversione su tre livelli, non solo ampliato l'elenco:
+1. Gate nominati espliciti (h, x, y, z, s, sdg, t, tdg, rx, ry, rz, cx, cz, swap, ccx) — mappano 1:1 su metodi dell'API Braket documentata (`circ.si()` per S-dagger, `circ.ti()` per T-dagger — nomi diversi da Qiskit, verificato sulla developer guide AWS).
+2. Fallback generico per qualunque altro gate a **un solo qubit** (u, u1, u2, u3, gate custom): conversione tramite la sua matrice unitaria (`instruction.operation.to_matrix()` → `braket_circuit.unitary(matrix=..., targets=...)`), sicura perché un singolo qubit target non ha ambiguità di ordinamento.
+3. Qualunque gate non nominato **su più qubit** (es. iSwap, gate custom multi-qubit) solleva `UnsupportedGateError` invece di essere scartato — l'ordinamento dei qubit in un fallback generico multi-qubit è l'unico punto dove Qiskit e Braket potrebbero non coincidere senza verifica, quindi si preferisce fermarsi con un errore esplicito piuttosto che rischiare un dato silenziosamente sbagliato.
+`orchestrator.py` intercetta `UnsupportedGateError` sui soli backend AWS/IonQ del path QASM custom e salta quel backend con un messaggio esplicito (stesso trattamento già riservato a un backend non disponibile), senza interrompere il resto del confronto. Corretto in parallelo un bug collegato: un file `--qasm` non trovato/malformato causava un fallback silenzioso all'esecuzione di bell+ghz+vqe su tutti i backend invece di fermarsi — ora esce subito con errore esplicito.
+
+**Limite dichiarato — da esplicitare nell'articolo:**
+"Qualunque circuito QASM" è vero nella pratica per qualunque circuito composto da gate unitari standard (che copre la stragrande maggioranza dei casi reali/didattici), ma non è un supporto universale: gate multi-qubit non tra quelli nominati esplicitamente (es. iSwap, gate custom a 2+ qubit) non vengono convertiti — il tool si ferma con un errore invece di produrre un dato scorretto. Verificato con un vero SDK Braket (1.110.1, non solo una classe `Circuit` fittizia): circuito con h/sdg/tdg/u3/cz/swap eseguito correttamente su `aws_local_simulator` e `ionq_simulator`, `si`/`ti` instradati correttamente per sdg/tdg, il fallback generico su `u3` attivato con il messaggio atteso, e un gate multi-qubit non riconosciuto (iSwap) solleva `UnsupportedGateError` come previsto invece di essere scartato in silenzio.
+
+**Rilevanza per il report — ALTA:**
+Questo è il caso concreto da citare per spiegare quanta libertà ha davvero la feature "inserisci il tuo circuito": non è una conversione universale (richiederebbe una libreria dedicata come qiskit-braket-provider, scartata per non aggiungere una dipendenza extra vicino alla scadenza), ma una conversione esplicita per i gate standard più una via generica sicura per qualunque gate a singolo qubit — con un confine netto e dichiarato (non silenzioso) per i gate multi-qubit non comuni. Citazione utile: "the tool converts arbitrary single-qubit gates generically via their unitary matrix, and explicitly refuses — rather than silently mishandles — multi-qubit gates outside a fixed named set, to avoid an unverified qubit-ordering assumption."
+
+---

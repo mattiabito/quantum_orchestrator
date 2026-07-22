@@ -1,0 +1,7 @@
+# Normalize line endings to LF in the repository, regardless of the OS
+# used to commit — checkouts still use the platform's native line ending.
+* text=auto
+
+# Binary files — never touch line endings
+*.png binary
+*.jpg binary

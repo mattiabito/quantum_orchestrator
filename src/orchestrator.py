@@ -15,6 +15,7 @@ from backends.ibm import (IBMSimulatorAdapter, IBMQPUAdapter,
                            pick_best_ibm_backend, ABSOLUTE_TIMEOUT_S)
 from backends.aws  import AWSSimulatorAdapter
 from backends.ionq import IonQSimulatorAdapter
+from backends.braket_utils import UnsupportedGateError
 from graph import plot_backend_comparison
 from paths import RESULTS_DIR
 import datetime
@@ -217,8 +218,8 @@ if __name__ == "__main__":
             run_vqe  = False
         except Exception as e:
             print(f"[QASM] Error loading file: {e}")
-            print("[QASM] Falling back to --circuit flag")
-            custom_circuit = None
+            sys.exit(1)  # don't silently fall back to running all built-in
+                         # benchmarks on a typo'd/missing filename
 
     if custom_circuit is None:
         run_bell = args.circuit in ("bell", "all")
@@ -376,15 +377,25 @@ if __name__ == "__main__":
                              fidelity_fn=generic_fidelity_fn)
         save_log(q_log3)
 
+        q_log4 = None
         q_adapter4 = AWSSimulatorAdapter()
-        q_log4     = run_job(q_adapter4, custom_circuit, shots=args.shots,
-                             fidelity_fn=generic_fidelity_fn) if q_adapter4.is_available() else None
-        if q_log4: save_log(q_log4)
+        if q_adapter4.is_available():
+            try:
+                q_log4 = run_job(q_adapter4, custom_circuit, shots=args.shots,
+                                 fidelity_fn=generic_fidelity_fn)
+                save_log(q_log4)
+            except UnsupportedGateError as e:
+                print(f"[AWS] Skipping — {e}")
 
+        q_log5 = None
         q_adapter5 = IonQSimulatorAdapter()
-        q_log5     = run_job(q_adapter5, custom_circuit, shots=args.shots,
-                             fidelity_fn=generic_fidelity_fn) if q_adapter5.is_available() else None
-        if q_log5: save_log(q_log5)
+        if q_adapter5.is_available():
+            try:
+                q_log5 = run_job(q_adapter5, custom_circuit, shots=args.shots,
+                                 fidelity_fn=generic_fidelity_fn)
+                save_log(q_log5)
+            except UnsupportedGateError as e:
+                print(f"[IonQ] Skipping — {e}")
 
         plot_backend_comparison(
             q_log1, q_log2, q_log3, q_log4, q_log5,

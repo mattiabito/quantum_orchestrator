@@ -18,7 +18,7 @@ Built as an extension of my BSc thesis in Computer Engineering (University of Pe
 - **Three execution strategies** — `responsive` (fast fallback), `accurate` (always QPU), `adaptive` (wait with timeout)
 - **Multi-provider** — IBM Quantum (superconducting), AWS Braket, IonQ (trapped-ion)
 - **Real QPU measurements** — fidelity, queue time, and execution time measured on real IBM hardware
-- **Custom circuit support** — pass any OpenQASM file as input
+- **Custom circuit support** — pass any OpenQASM file built from standard unitary gates as input
 - **Automatic fallback** — if QPU queue exceeds threshold, falls back to calibrated noisy simulator automatically
 
 ---
@@ -161,7 +161,7 @@ circuits/
 Run the built-in circuits and get a comparative analysis across all providers. Useful for researchers and developers who want to know which backend best fits their problem before committing to a provider.
 
 ### 2. Run your own circuit
-Pass any `.qasm` file and let the orchestrator handle provider selection, queue management, fallback, and result logging automatically. Useful for engineers who want to execute quantum algorithms without managing provider-specific SDKs.
+Pass any `.qasm` file and let the orchestrator handle provider selection, queue management, fallback, and result logging automatically. Useful for engineers who want to execute quantum algorithms without managing provider-specific SDKs. Named gates (h, x, y, z, s, sdg, t, tdg, rx, ry, rz, cx, cz, swap, ccx) and any other single-qubit gate convert automatically; unrecognized multi-qubit gates are reported explicitly rather than silently mishandled.
 
 ---
 
