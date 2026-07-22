@@ -413,6 +413,38 @@ Sostituisce le entry precedenti (single-run, poi ritirate) con dati solidi da 5 
 
 ---
 
+## 22/07/2026 — Bell rilanciato post-fix: dati aggiornati su tutti e 5 i backend
+
+**Cosa abbiamo osservato:**
+`--circuit bell --strategy accurate` rilanciato dopo il fix IonQ (19/07) e gli altri cambi di sessione: ideal_simulator 100.00% | noisy_simulator 96.58% | ibm_qpu_ibm_marrakesh 98.54% (queue 21.7s) | aws_local_simulator 100.00% | ionq_simulator 98.73%.
+
+**Perché è rilevante:**
+Singolo run (n=1), quindi nessuna conclusione forte sulla direzione IonQ-vs-QPU da questo dato isolato — lezione già applicata in questa sessione. Il valore IonQ (98.73%) resta comunque dentro il range già misurato prima del fix (98.14-99.41%): Bell ha un solo CNOT (come VQE), quindi l'impatto del fix a due qubit è più contenuto che su GHZ (due CNOT) — coerente con quanto già osservato.
+
+**Decisione presa:**
+Nessuna modifica al codice. `results/bell_comparison.png` e `results/log.json` aggiornati con dati correnti, sostituendo la versione del 3 luglio (pre-fix).
+
+**Rilevanza per il report — MEDIA:**
+Dato di riferimento aggiornato per la tabella misure finale. Se si vuole un confronto IonQ-vs-QPU statisticamente solido anche su Bell (come fatto per GHZ/VQE), servirebbero repliche multiple — non fatto qui, singolo run sufficiente solo come punto di riferimento post-fix.
+
+---
+
+## 22/07/2026 — README e Guida Progetto: comando d'esempio QASM custom era sbagliato
+
+**Cosa abbiamo osservato:**
+Il comando d'esempio per il "Caso d'uso 2" (eseguire un circuito QASM personalizzato) in README e Guida Progetto usava `--circuit file.qasm`, ma il flag CLI effettivo è `--qasm` (`--circuit` accetta solo `bell`/`ghz`/`vqe`/`all`). Anche `--circuit vqe_h2` nella sezione "Run built-in benchmarks" del README era sbagliato (il valore corretto è `vqe`).
+
+**Perché succede:**
+Refuso di documentazione risalente probabilmente a una versione precedente della CLI, mai aggiornato dopo l'implementazione finale degli argomenti argparse.
+
+**Decisione presa:**
+Corretti entrambi i comandi in README.md e Quantum_Orchestrator_Guida_Progetto.md.
+
+**Rilevanza per il report — MEDIA:**
+Bug di riproducibilità concreto: chiunque avesse seguito il README/Guida alla lettera per il caso d'uso pubblicizzato come principale ("esegui il tuo circuito") avrebbe ricevuto un errore argparse. Da controllare sempre che i comandi in un README pubblico siano stati effettivamente testati, non solo scritti a mano.
+
+---
+
 ## 20/07/2026 — L'import scipy.optimize in vqe_h2.py non era mai usato
 
 **Cosa abbiamo osservato:**

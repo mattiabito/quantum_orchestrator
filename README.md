@@ -47,31 +47,57 @@ python src/orchestrator.py
 
 ### Run your own circuit
 ```bash
-python src/orchestrator.py --circuit my_circuit.qasm --strategy accurate --shots 2048
+python src/orchestrator.py --qasm my_circuit.qasm --strategy accurate --shots 2048
 ```
 
 ### Run built-in benchmarks
 ```bash
 python src/orchestrator.py --circuit bell --strategy responsive
 python src/orchestrator.py --circuit ghz --strategy responsive
-python src/orchestrator.py --circuit vqe_h2 --strategy accurate
+python src/orchestrator.py --circuit vqe --strategy accurate
 ```
 
 ---
 
 ## Results
 
-Bell state benchmark across all backends (latest run):
+### Bell state (2 qubits, latest run)
 
 | Backend | Fidelity | Queue | Exec |
 |---|---|---|---|
-| ideal_simulator | 100.00% | 0s | 0.02s |
+| ideal_simulator | 100.00% | 0s | 0.03s |
 | noisy_simulator | ~95–97% | 0s | 0.01s |
 | ibm_qpu_ibm_marrakesh | 97.95–98.93% | 10–42s | 2s |
 | aws_local_simulator | 100.00% | 0s | 0.03s |
-| ionq_simulator | 98.14–99.41% | 0s | 0.5s |
+| ionq_simulator | 98.73% | 0s | 0.55s |
 
-**Key finding:** real QPU execution takes 2 seconds. Queue time ranges from 10 seconds to 61 minutes on the same machine. Queue/execution ratio: up to 1822:1. This is the empirical demonstration of what the QCaaS literature describes only qualitatively.
+### GHZ state (3 qubits, 5 replicas on real QPU)
+
+| Backend | Fidelity | Queue | Exec |
+|---|---|---|---|
+| ideal_simulator | 100.00% | 0s | 0.03s |
+| noisy_simulator | 93.47% ± 0.83% | 0s | 0.01s |
+| ibm_qpu (fez/marrakesh) | 94.63% ± 1.70% | 10.6–116.6s | 2s |
+| aws_local_simulator | 100.00% | 0s | 0.04s |
+| ionq_simulator | 97.72–97.89% ± ~0.5% | 0s | 0.8s |
+
+### VQE H₂ (2 qubits, 5 replicas on real QPU)
+
+| Backend | Fidelity | Energy (Hartree) | Queue | Exec |
+|---|---|---|---|---|
+| ideal_simulator | 100.00% | -0.7432 | 0s | 0.01s |
+| noisy_simulator | 95.29% ± 0.70% | ~-0.73 | 0s | 0.01s |
+| ibm_qpu (fez/marrakesh) | 97.30% ± 1.79% | ~-0.72 | 10.6–33.4s | 2s |
+| aws_local_simulator | 100.00% | -0.7432 | 0s | 0.04s |
+| ionq_simulator | 98.68–98.83% ± ~0.3% | ~-0.73 | 0s | 0.6s |
+
+**Key finding — queue vs execution:** real QPU execution takes 2 seconds across all circuits. Queue time ranges from 10 seconds to 61 minutes on the same machine. Queue/execution ratio: up to 1822:1. This is the empirical demonstration of what the QCaaS literature describes only qualitatively.
+
+**Key finding — backend selection affects fidelity, not just queue time:** on VQE H₂, real-QPU fidelity varies from 95.36% (ibm_fez) to 98.60% (ibm_marrakesh) on the identical circuit — replicated measurements (n=5) show this gap is driven by which machine gets selected, not random noise. Autonomous backend selection measurably affects result quality, not only wait time.
+
+**Caveat — IonQ is a calibrated noise-model simulator, not physical hardware.** The `ionq_simulator` numbers above come from a Braket density-matrix simulator with vendor-published error rates, not a measurement on physical trapped-ion hardware. It is not directly equivalent to the IBM QPU rows, which are real hardware measurements. Replicated data (n=5-10) shows IonQ consistently at or above real IBM QPU fidelity on GHZ, but this reflects the noise model's calibration, not a physical hardware comparison — treat it as a reference point, not a "IonQ beats IBM" claim.
+
+**Caveat — VQE H₂ energy is a Z-basis-only partial estimate.** The exact ground-state energy is -1.1372 Hartree; this benchmark's Z-basis-only measurement captures ~65% of it (~-0.7432 Hartree), missing the off-diagonal XX+YY Hamiltonian terms (~0.394 Hartree), which require additional circuit executions with basis-rotation gates. The fidelity metric (dominant-state measurement) is unaffected by this limitation and reflects genuine circuit execution quality.
 
 ---
 
@@ -114,14 +140,15 @@ The orchestrator uses a plugin architecture based on an abstract `BackendAdapter
 
 ```
 backends/
-  base.py    — abstract BackendAdapter (is_available, estimated_queue_s, run, name)
-  ibm.py     — IBM superconducting: IBMSimulatorAdapter, IBMQPUAdapter, IBMQPUAdapterAdaptive
-  aws.py     — AWS Braket: AWSSimulatorAdapter
-  ionq.py    — IonQ trapped-ion: IonQSimulatorAdapter (via Braket density matrix)
+  base.py         — abstract BackendAdapter (is_available, estimated_queue_s, run, name)
+  ibm.py          — IBM superconducting: IBMSimulatorAdapter, IBMQPUAdapter, IBMQPUAdapterAdaptive
+  aws.py          — AWS Braket: AWSSimulatorAdapter
+  ionq.py         — IonQ trapped-ion: IonQSimulatorAdapter (via Braket density matrix)
+  braket_utils.py — Qiskit-to-Braket circuit conversion, shared by aws.py and ionq.py
 circuits/
   bell.py    — Bell state (2 qubits) — base validation
-  ghz.py     — GHZ state (3 qubits) — medium complexity    [coming in v0.6]
-  vqe_h2.py  — VQE H₂ molecule — real use case             [coming in v0.6]
+  ghz.py     — GHZ state (3 qubits) — medium complexity
+  vqe_h2.py  — VQE H₂ molecule — real use case
 ```
 
 **Adding a new provider** is straightforward — implement `BackendAdapter` and register it in `orchestrator.py`. No other changes needed.
@@ -145,12 +172,12 @@ Pass any `.qasm` file and let the orchestrator handle provider selection, queue 
 - [x] Autonomous backend selection (lowest queue, operational check)
 - [x] Three execution strategies (responsive, accurate, adaptive)
 - [x] 5-backend comparison graph with fidelity and exec time
-- [ ] GHZ and VQE H₂ circuits
-- [ ] CLI with --circuit, --strategy, --shots, --output flags
-- [ ] OpenQASM file input support
-- [ ] JSON structured output
-- [ ] Shots efficiency benchmark
-- [ ] Systematic benchmark dashboard
+- [x] GHZ and VQE H₂ circuits
+- [x] CLI with --circuit, --strategy, --shots, --qasm flags
+- [x] OpenQASM file input support
+- [x] JSON structured output (NDJSON)
+- [x] Shots efficiency benchmark (10 replicas per shot count)
+- [x] Systematic benchmark across all circuits and backends, including replicated real-QPU measurements
 
 ---
 

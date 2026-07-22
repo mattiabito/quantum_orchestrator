@@ -32,7 +32,7 @@ Esegui i circuiti built-in (Bell, GHZ, VQE H₂) e ottieni un'analisi comparativ
 
 **Caso d'uso 2 — Esegui il tuo circuito**
 ```bash
-python orchestrator.py --circuit mio_algoritmo.qasm --strategy accurate --shots 2048
+python src/orchestrator.py --qasm mio_algoritmo.qasm --strategy accurate --shots 2048
 ```
 Per ingegneri che hanno un circuito quantistico proprio e vogliono eseguirlo sul backend migliore disponibile senza gestire IBM vs AWS vs IonQ, code e fallback.
 
@@ -44,18 +44,24 @@ Per ingegneri che hanno un circuito quantistico proprio e vogliono eseguirlo sul
 src/
   orchestrator.py        — logica principale: backend selector, strategie, logging
   graph.py               — grafici comparativi
+  shots_efficiency.py    — benchmark shots efficiency (10 repliche/punto, 128-4096 shots)
   backends/
     base.py              — classe astratta BackendAdapter
     ibm.py               — IBM superconduttivo (simulatore Aer + QPU reale)
     aws.py               — AWS Braket simulatore locale
     ionq.py              — IonQ trapped-ion (via Braket)
+    braket_utils.py      — conversione Qiskit→Braket condivisa da aws.py e ionq.py
   circuits/
     bell.py              — Bell state (2 qubit) — circuito di validazione
     ghz.py               — GHZ state (3 qubit) — complessità media
     vqe_h2.py            — VQE per molecola H₂ — caso d'uso reale
 results/
-  log.txt                — log append-only dei job
-  backend_comparison.png — grafico comparativo più recente
+  log.json               — log append-only dei job (NDJSON, un oggetto JSON per riga)
+  bell_comparison.png    — grafico comparativo Bell state (più recente)
+  ghz_comparison.png     — grafico comparativo GHZ state
+  vqe_comparison.png     — grafico comparativo VQE H₂
+  custom_comparison.png — grafico comparativo ultimo circuito QASM custom eseguito
+  shots_efficiency.png   — grafico convergenza statistica shots
 .env                     — API key (non caricare mai su GitHub)
 README.md                — pitch pubblico + istruzioni di installazione
 ```
@@ -99,14 +105,14 @@ L'orchestratore non sa mai con quale provider sta parlando.
 - Tre strategie di esecuzione: responsive, accurate, adaptive
 - Grafico comparativo a 5 backend con exec time
 
-### Fase 3 — Benchmark sistematici + CLI (IN CORSO)
-- [ ] Circuito GHZ (3 qubit, complessità media)
-- [ ] Circuito VQE H₂ (caso d'uso reale, ground truth = -1.1372 Hartree)
-- [ ] Analisi shots efficiency (256 → 4096 shots)
-- [ ] CLI con argparse (--circuit, --strategy, --shots, --output)
-- [ ] Supporto file QASM (esegui qualsiasi circuito personalizzato)
-- [ ] Output JSON strutturato
-- [ ] Benchmark sistematico su tutti i circuiti e backend
+### Fase 3 — Benchmark sistematici + CLI ✅ COMPLETATA
+- [x] Circuito GHZ (3 qubit, complessità media)
+- [x] Circuito VQE H₂ (caso d'uso reale, ground truth = -1.1372 Hartree)
+- [x] Analisi shots efficiency (256 → 4096 shots)
+- [x] CLI con argparse (--circuit, --strategy, --shots, --qasm)
+- [x] Supporto file QASM (esegui qualsiasi circuito personalizzato)
+- [x] Output JSON strutturato (NDJSON)
+- [x] Benchmark sistematico su tutti i circuiti e backend (Bell, GHZ, VQE H₂ × 5 backend, incluse repliche statistiche su QPU reale)
 
 ### Fase 4 — Pubblicazione e candidature
 - [ ] Articolo: *"Quantum computing is an orchestration problem: I built a hybrid scheduler and measured what the textbooks only describe"*
@@ -120,17 +126,31 @@ L'orchestratore non sa mai con quale provider sta parlando.
 
 ## 5. Misure raccolte finora
 
-| Circuito | Backend | Fidelità | Coda | Esecuzione |
-|---|---|---|---|---|
-| Bell state | ideal_simulator | 100.00% | 0s | ~0.02s |
-| Bell state | noisy_simulator | ~95–97% | 0s | ~0.01s |
-| Bell state | ibm_qpu_ibm_kingston | 96.48% | 3645s | 2s |
-| Bell state | ibm_qpu_ibm_fez | 94.53–95.41% | 10–11s | 2s |
-| Bell state | ibm_qpu_ibm_marrakesh | 97.95–98.93% | 11–42s | 2s |
-| Bell state | aws_local_simulator | 100.00% | 0s | ~0.03s |
-| Bell state | ionq_simulator | 98.14–99.41% | 0s | ~0.5s |
+| Circuito | Backend | Fidelità | Coda | Esecuzione | Note |
+|---|---|---|---|---|---|
+| Bell state | ideal_simulator | 100.00% | 0s | ~0.03s | |
+| Bell state | noisy_simulator | ~95–97% | 0s | ~0.01s | |
+| Bell state | ibm_qpu_ibm_kingston | 96.48% | 3645s | 2s | run 29/06 |
+| Bell state | ibm_qpu_ibm_fez | 94.53–95.41% | 10–11s | 2s | run 29/06 |
+| Bell state | ibm_qpu_ibm_marrakesh | 97.95–98.93%, 98.54% | 11–42s, 21.7s | 2s | range 29/06 + refresh 22/07 post-fix |
+| Bell state | aws_local_simulator | 100.00% | 0s | ~0.03s | |
+| Bell state | ionq_simulator | 98.73% | 0s | ~0.55s | post-fix noise model (19/07), singolo run 22/07 — sostituisce il vecchio 98.14–99.41% pre-fix |
+| GHZ state | ideal_simulator | 100.00% | 0s | ~0.03s | |
+| GHZ state | noisy_simulator | 93.47% ± 0.83% | 0s | ~0.01s | n=10 repliche |
+| GHZ state | ibm_qpu (fez/marrakesh) | 94.63% ± 1.70% | 10.6–116.6s | 2s | n=5 repliche, 20/07 — 93.97% media su ibm_fez (n=4) |
+| GHZ state | aws_local_simulator | 100.00% | 0s | ~0.04s | |
+| GHZ state | ionq_simulator | 97.72–97.89% ± 0.48–0.60% | 0s | ~0.8s | n=10 (sandbox) + n=5 (venv utente), 20/07 |
+| VQE H₂ | ideal_simulator | 100.00% | 0s | ~0.01s | E = -0.7432 Hartree (limite Z-basis, non un errore) |
+| VQE H₂ | noisy_simulator | 95.29% ± 0.70% | 0s | ~0.01s | n=10 repliche |
+| VQE H₂ | ibm_qpu (fez/marrakesh) | 97.30% ± 1.79% | 10.6–33.4s | 2s | n=5 repliche, 20/07 — 95.36% su ibm_fez (n=2) vs 98.60% su ibm_marrakesh (n=3) |
+| VQE H₂ | aws_local_simulator | 100.00% | 0s | ~0.04s | |
+| VQE H₂ | ionq_simulator | 98.68–98.83% ± 0.12–0.41% | 0s | ~0.35–0.8s | n=10 (sandbox) + n=5 (venv utente), 20/07 |
 
-**Dato empirico chiave:** esecuzione reale su QPU = 2 secondi. Il tempo di coda varia da 10s a 3645s (61 minuti) sulla stessa macchina. Rapporto coda/esecuzione: fino a 1822:1. Questo dimostra empiricamente l'affermazione della tesi sulla latenza come collo di bottiglia dominante del QCaaS.
+**Dati empirici chiave:**
+- Esecuzione reale su QPU = 2 secondi, stabile su tutti i circuiti. Il tempo di coda varia da 10s a 3645s (61 minuti) sulla stessa macchina. Rapporto coda/esecuzione: fino a 1822:1. Dimostra empiricamente l'affermazione della tesi sulla latenza come collo di bottiglia dominante del QCaaS.
+- Con repliche vere (n=5 su QPU reale), il gap di fidelità IonQ-vs-QPU su GHZ è confermato reale (94.63% vs 97.89%, quasi 2 deviazioni standard di separazione) — non rumore di campionamento.
+- Su VQE H₂, la varianza della QPU reale è spiegata soprattutto da **quale macchina IBM viene selezionata** (ibm_fez 95.36% vs ibm_marrakesh 98.60% sullo stesso circuito) — prova quantitativa diretta che la selezione autonoma del backend incide sulla fidelity ottenuta, non solo sul tempo di coda.
+- Il confronto IonQ-vs-QPU reale non è equivalente: IonQ è un simulatore con noise model calibrato, la QPU è hardware fisico misurato. Va sempre dichiarato nel report (vedi caveat nel README).
 
 ---
 
@@ -147,6 +167,10 @@ Claude non ha memoria tra sessioni diverse. Inizia ogni sessione con:
 | 24/06/2026 | Installato Python 3.12, VS Code, Qiskit. Creato account IBM Quantum. Primo run di orchestrator.py funzionante con Bell state. | Aggiungere noise model realistico |
 | 25/06/2026 | Riscritto orchestrator.py in inglese. Aggiunto noise model IBM realistico. Misurata fidelità: ideale 100%, rumore ~95.3%. Creati .gitignore, requirements.txt, README.md. Inizializzato repo Git su GitHub. | Collegare QPU reale IBM |
 | 29/06/2026 | Collegata QPU reale IBM. Backend selector autonomo (sceglie coda minima). Run su ibm_fez/ibm_marrakesh: fidelità 94–99%, coda 10–3645s, esecuzione 2s. Fallback adattivo + timeout 30min. Architettura BackendAdapter a plugin: ibm.py, aws.py, ionq.py. Tre strategie: responsive, accurate, adaptive. Grafico a 5 backend con exec time. Aggiornati README e guida progetto. | Fase 3: circuito GHZ, VQE H₂, CLI |
+| 01/07/2026 | Sviluppato circuito VQE H₂ (ansatz Ry+CX, theta ottimale via scan analitico). Scoperto limite fondamentale: misure Z-basis catturano solo ~65% dell'energia totale (termini XX+YY mancanti) — dichiarato esplicitamente, non un bug. PySCF non installabile su Windows senza compiler C — abbandonato, usati coefficienti Hamiltoniani da letteratura (Kandala et al. 2017). Tool dichiarato feature-complete: 3 circuiti, 5 backend, 3 strategie, CLI completa, QASM, JSON, shots efficiency. | Fase 4: revisione codice, benchmark sistematico completo, articolo |
+| 19/07/2026 | Revisione completa del codice con Claude: 14 problemi identificati (bug, dati, documentazione). Corretto bug serio: il noise model IonQ mancava del canale di errore a due qubit sul CNOT — le misure precedenti sovrastimavano la fidelità IonQ. Implementata fidelity generica (Hellinger) per circuiti QASM custom, scope limitato a QASM per non invalidare i dati Bell/GHZ/VQE esistenti. Pulizia codice: import morti rimossi, ionq.py disaccoppiato da aws.py (nuovo modulo braket_utils.py), IBMQPUAdapterAdaptive ora eredita da IBMQPUAdapter, costanti timeout centralizzate, circuit_info() aggiunta a ghz.py. | Rifare benchmark sistematico GHZ/VQE con codice corretto |
+| 20/07/2026 | Rifatto benchmark GHZ e VQE H₂ su tutti e 5 i backend. Risolti due bug legati a Windows: import scipy non necessario in vqe_h2.py causava crash anche su Bell/GHZ (bloccato da un criterio di Application Control) — rimosso, VQE ora dipende solo da numpy. Errore metodologico commesso e corretto nella stessa sessione: conclusioni premature da un singolo run per backend (differenze piccole = rumore di campionamento, non effetto reale) — corretto con 5-10 repliche. Risultato solido: gap IonQ-vs-QPU reale su GHZ confermato (94.63% ± 1.70% vs 97.89% ± 0.60%, n=5); su VQE la varianza della QPU è spiegata soprattutto dalla macchina selezionata (ibm_fez 95.36% vs ibm_marrakesh 98.60%) — prova quantitativa che la selezione autonoma del backend conta anche per la fidelity, non solo per il tempo di coda. | Rilanciare Bell, aggiornare README/Guida Progetto con dati reali |
+| 22/07/2026 | Bell rilanciato post-fix su tutti e 5 i backend (98.73% IonQ, 98.54% QPU reale, singolo run di riferimento). Verificati e rimossi file obsoleti: `backend_comparison.png` pre-refactor, cartella `src/results/` duplicata, `log.txt` superato da `log.json`. Sincronizzata documentazione: roadmap Fase 3 marcata completa in README e Guida Progetto, tabella misure aggiornata con dati GHZ/VQE, caveat IonQ-vs-QPU e limite Z-basis VQE aggiunti al README pubblico. | Fase 4: bozza articolo |
 
 ---
 
