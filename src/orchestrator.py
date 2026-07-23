@@ -360,9 +360,13 @@ if __name__ == "__main__":
         # ideal_simulator runs first — its distribution is the reference
         # for a generic fidelity metric on the other backends, since a
         # custom circuit's ideal state isn't known in advance like Bell/GHZ/VQE
+        # Reference run — perfect match with itself by definition. Fidelity is
+        # passed as fidelity_fn (not set after the fact) so the console print
+        # shows 100% immediately instead of a leftover Bell-formula value that
+        # means nothing for an arbitrary circuit.
         q_adapter1 = select_backend("ideal_simulator")
-        q_log1     = run_job(q_adapter1, custom_circuit, shots=args.shots)
-        q_log1["fidelity"] = 1.0  # reference run — perfect match with itself by definition
+        q_log1     = run_job(q_adapter1, custom_circuit, shots=args.shots,
+                             fidelity_fn=lambda counts, shots: 1.0)
         save_log(q_log1)
 
         generic_fidelity_fn = _make_generic_fidelity_fn(q_log1["counts"], args.shots)

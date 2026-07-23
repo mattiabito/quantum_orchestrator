@@ -49,13 +49,20 @@ class IonQSimulatorAdapter(BackendAdapter):
         for q in range(circuit.num_qubits):
             braket_circuit.depolarizing(q, probability=0.0003)
 
-        # Two-qubit depolarizing on CNOT gates: 0.3%
-        # (was missing before — CNOT is the dominant error source on
-        # entangled circuits, see Technical Decisions Log 19/07)
+        # Two-qubit depolarizing on entangling gates: 0.3%
+        # (was cx-only before — CNOT is the dominant error source on
+        # entangled circuits, see Technical Decisions Log 19/07. Extended
+        # to cz/swap on 22/07 now that braket_utils converts them too.
+        # ccx (Toffoli) is NOT modeled here — it acts on 3 qubits and has
+        # no direct two_qubit_depolarizing equivalent; see Technical
+        # Decisions Log 22/07 for why this is left as a known gap.)
         for instruction in circuit.data:
-            if instruction.operation.name == 'cx':
+            if instruction.operation.name in ('cx', 'cz', 'swap'):
                 q0, q1 = [circuit.find_bit(q).index for q in instruction.qubits]
                 braket_circuit.two_qubit_depolarizing(q0, q1, probability=0.003)
+            elif instruction.operation.name == 'ccx':
+                print("[IonQ] Warning: ccx (Toffoli) has no two-qubit noise "
+                      "model applied — result fidelity for this gate is optimistic")
 
         # Readout error: 0.5% bit flip on each qubit
         for q in range(circuit.num_qubits):

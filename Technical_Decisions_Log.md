@@ -556,3 +556,38 @@ Riprogettata la conversione su tre livelli, non solo ampliato l'elenco:
 Questo è il caso concreto da citare per spiegare quanta libertà ha davvero la feature "inserisci il tuo circuito": non è una conversione universale (richiederebbe una libreria dedicata come qiskit-braket-provider, scartata per non aggiungere una dipendenza extra vicino alla scadenza), ma una conversione esplicita per i gate standard più una via generica sicura per qualunque gate a singolo qubit — con un confine netto e dichiarato (non silenzioso) per i gate multi-qubit non comuni. Citazione utile: "the tool converts arbitrary single-qubit gates generically via their unitary matrix, and explicitly refuses — rather than silently mishandles — multi-qubit gates outside a fixed named set, to avoid an unverified qubit-ordering assumption."
 
 ---
+
+## 22/07/2026 — Rifinitura fix gate: noise model IonQ esteso a cz/swap, ccx dichiarato non modellato, print fidelity fuorviante corretto
+
+**Cosa abbiamo osservato:**
+Due strascichi minori dell'ampliamento della conversione gate di oggi. (1) `ionq.py` applicava il depolarizing a due qubit solo ai gate `cx`: ora che `cz` e `swap` vengono convertiti correttamente, venivano eseguiti senza il loro rumore a due qubit — circuito giusto, modello di rumore incompleto per quei gate. (2) Il run di riferimento `ideal_simulator` nel path QASM custom stampava in console una fidelity calcolata con la formula di Bell (es. "0.00%" o altri valori senza senso su circuiti a 3 qubit) prima che il codice la sovrascrivesse a 1.0 per il salvataggio — il dato salvato era sempre corretto, ma l'output a schermo poteva sembrare un fallimento.
+
+**Perché succede:**
+(1) Il controllo `if instruction.operation.name == 'cx'` non è stato aggiornato quando sono stati aggiunti `cz`/`swap` alla conversione. (2) `run_job()` stampa `result['fidelity']` subito dopo `adapter.run()`, che per `IBMSimulatorAdapter` calcola sempre di default `compute_fidelity` (formula Bell) — l'override a 1.0 avveniva dopo, in `orchestrator.py`, quindi dopo la stampa.
+
+**Decisione presa:**
+(1) Esteso il controllo a `('cx', 'cz', 'swap')`. `ccx` (Toffoli, 3 qubit) resta esplicitamente NON modellato — non esiste un canale di rumore a due qubit direttamente applicabile a 3 qubit, e costruire un'approssimazione arbitraria (es. rumore su ogni coppia) sarebbe stata una scelta arbitraria e non giustificata; meglio dichiararlo apertamente con un warning a schermo (`[IonQ] Warning: ccx (Toffoli) has no two-qubit noise model applied`) che inventare un numero. (2) `fidelity_fn=lambda counts, shots: 1.0` passato direttamente a `run_job()` per il run di riferimento, invece di sovrascrivere il dizionario dopo — stampa e dato salvato ora coincidono sempre.
+
+**Rilevanza per il report — MEDIA:**
+Esempio concreto di scelta metodologica onesta invece di un'approssimazione comoda: per Toffoli si è preferito dichiarare esplicitamente "non modellato" piuttosto che inventare un modello di rumore multi-qubit non validato. Utile per la sezione metodologica come esempio di trasparenza attiva sui limiti del noise model.
+
+---
+
+## 22/07/2026 — Limitazioni note e accettate del progetto (riferimento consolidato per la sezione Limitazioni dell'articolo)
+
+Non è un nuovo bug o una nuova decisione — è un indice, richiesto esplicitamente per l'onestà scientifica del report, di tutti i punti in cui il progetto ha scelto consapevolmente un'approssimazione pragmatica invece di una soluzione completa. Ogni punto rimanda alla entry originale per i dettagli; qui c'è solo la sintesi e la giustificazione, pensata per essere trasportata quasi direttamente nella sezione "Limitations" dell'articolo.
+
+1. **Il noise model non è calibrato sul backend reale effettivamente selezionato.** `noisy_simulator` usa parametri fissi "tipici" (0.1% singolo qubit, 1% CNOT, 2% readout per IBM; 0.03/0.3/0.5% per IonQ), non i parametri di calibrazione reali di `ibm_fez` o `ibm_marrakesh` a seconda di quale viene scelto quella run. È un modello di rumore generico usato come termine di paragone, non una replica del backend specifico misurato nello stesso confronto. Giustificazione: calibrare dinamicamente il modello richiederebbe interrogare le API di calibrazione IBM ad ogni run (dati non sempre disponibili in tempo reale, e comunque un'informazione che il noise model "generico" non pretende di catturare) — fuori scope per un tool che confronta *categorie* di backend, non predice la fidelity esatta di una macchina specifica.
+
+2. **Le soglie di queue/timeout sono costanti scelte, non misurate.** `ESTIMATED_EXEC_S = 10` e `ABSOLUTE_TIMEOUT_S = 1800` (`backends/ibm.py`) sono stime ragionevoli ma fisse, non derivate da una misurazione empirica per ogni combinazione circuito/shots/backend. Le tre strategie (responsive/accurate/adaptive) sono corrette nella logica ma il loro punto di soglia esatto è un parametro di design, non un valore calibrato.
+
+3. **I circuiti testati sono piccoli e poco profondi (2-3 qubit, profondità 3-5).** Bell, GHZ e VQE H2 minimale sono scelti apposta per isolare l'effetto backend/noise dal rumore di un circuito complesso, ma questo significa che i risultati (es. il rapporto queue/execution 1822:1, il gap IonQ-vs-QPU) non sono stati verificati su circuiti più grandi o più profondi, dove l'accumulo di errore per gate potrebbe cambiare il quadro. Da dichiarare come limite di generalizzabilità, non solo come scelta di design.
+
+4. **Il supporto per circuiti QASM custom è per circuiti puramente unitari + misura finale, non per circuiti dinamici.** Nessun supporto per misura intermedia, reset, o gate condizionati classicamente (`if`) — non presenti in OpenQASM 2.0 "base" ma disponibili in alcune estensioni. Il tool assume un circuito "classico": tutti i gate, poi tutte le misure alla fine.
+
+5. **Riferimenti alle limitazioni già documentate in dettaglio altrove, per completezza dell'indice:** IonQ è un simulatore calibrato, non hardware fisico (29/06); VQE H2 misura solo la base Z, ~65% dell'energia totale (20/07); la fidelity generica per QASM richiede che `ideal_simulator` sia trattabile classicamente, quindi non scala a circuiti troppo grandi (19/07); la conversione Braket copre gate nominati + fallback generico a singolo qubit, i gate multi-qubit non comuni sollevano un errore esplicito invece di essere approssimati (22/07); il noise model IonQ non modella `ccx` (22/07, sopra).
+
+**Rilevanza per il report — ALTA:**
+Questo è l'indice da cui partire per scrivere la sezione Limitations dell'articolo. Il filo conduttore comune a tutti i punti: ogni volta che il progetto ha lasciato correre un'approssimazione, lo ha fatto dichiarandolo esplicitamente (a schermo, nel codice, o qui) invece di nasconderlo — la trasparenza sui limiti è essa stessa un risultato metodologico del progetto, non solo una nota a margine.
+
+---

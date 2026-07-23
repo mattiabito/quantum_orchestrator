@@ -1,6 +1,6 @@
 # Quantum Orchestrator
 
-An open source CLI tool that accepts any quantum circuit, autonomously selects the best available backend across IBM Quantum, AWS Braket and IonQ, executes the job with automatic fallback, and returns fidelity measurements and comparison graphs.
+An open source CLI tool that accepts any quantum circuit built from standard gates, autonomously selects the best available backend across IBM Quantum, AWS Braket and IonQ, executes the job with automatic fallback, and returns fidelity measurements and comparison graphs.
 
 ## Motivation
 
@@ -57,6 +57,12 @@ python src/orchestrator.py --circuit ghz --strategy responsive
 python src/orchestrator.py --circuit vqe --strategy accurate
 ```
 
+### Shots efficiency benchmark
+Runs Bell and GHZ at increasing shot counts (10 replicas each) on the noisy simulator, to see how fidelity converges as shots increase.
+```bash
+python src/shots_efficiency.py
+```
+
 ---
 
 ## Results
@@ -106,7 +112,7 @@ python src/orchestrator.py --circuit vqe --strategy accurate
 **Requirements:** Python 3.12+, IBM Quantum account (free tier)
 
 ```bash
-pip install qiskit qiskit-aer qiskit-ibm-runtime amazon-braket-sdk python-dotenv matplotlib
+pip install -r requirements.txt
 ```
 
 **IBM API key:** get it at https://quantum.ibm.com → Account → API Token
