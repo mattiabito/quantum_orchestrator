@@ -265,6 +265,16 @@ Meta-decisione di processo, non tecnica — ma essenziale per la qualità finale
 
 ## 01/07/2026 — VQE H₂: impossibilità stima energetica completa da Z-basis sola
 
+> **⚠️ ENTRY RITRATTATA (23/07/2026).** La conclusione qui sotto ("Z-basis
+> cattura solo ~65% dell'energia, mancano XX+YY per ~0.394 Hartree") è una
+> **diagnosi errata**, scoperta dalla revisione del professore. Il plateau a
+> -0.7432 Hartree non era un limite di misura ma il minimo esatto raggiungibile
+> da un ansatz nel settore di simmetria sbagliato, su un Hamiltoniano con
+> coefficienti errati. Con Hamiltoniano corretto (O'Malley 2016) e ansatz
+> Hartree-Fock il tool raggiunge -1.1373 Hartree (chemical accuracy). Vedi
+> l'entry del 23/07/2026 per la correzione completa. Testo originale mantenuto
+> sotto per tracciabilità del percorso decisionale.
+
 **Cosa abbiamo osservato:**
 Dopo numerosi tentativi con ansatz e parametri diversi, il simulatore
 ideale converge sempre a E ≈ -0.74 Hartree invece di -1.1372 Hartree.
@@ -585,9 +595,168 @@ Non è un nuovo bug o una nuova decisione — è un indice, richiesto esplicitam
 
 4. **Il supporto per circuiti QASM custom è per circuiti puramente unitari + misura finale, non per circuiti dinamici.** Nessun supporto per misura intermedia, reset, o gate condizionati classicamente (`if`) — non presenti in OpenQASM 2.0 "base" ma disponibili in alcune estensioni. Il tool assume un circuito "classico": tutti i gate, poi tutte le misure alla fine.
 
-5. **Riferimenti alle limitazioni già documentate in dettaglio altrove, per completezza dell'indice:** IonQ è un simulatore calibrato, non hardware fisico (29/06); VQE H2 misura solo la base Z, ~65% dell'energia totale (20/07); la fidelity generica per QASM richiede che `ideal_simulator` sia trattabile classicamente, quindi non scala a circuiti troppo grandi (19/07); la conversione Braket copre gate nominati + fallback generico a singolo qubit, i gate multi-qubit non comuni sollevano un errore esplicito invece di essere approssimati (22/07); il noise model IonQ non modella `ccx` (22/07, sopra).
+5. **Riferimenti alle limitazioni già documentate in dettaglio altrove, per completezza dell'indice:** IonQ è un simulatore calibrato, non hardware fisico (29/06); ~~VQE H2 misura solo la base Z, ~65% dell'energia totale (20/07)~~ **[SUPERATO 23/07: era una diagnosi errata; il tool ora misura l'energia completa di H₂ a chemical accuracy con misura Z+X, -1.1373 Ha — vedi entry 23/07]**; la fidelity generica per QASM richiede che `ideal_simulator` sia trattabile classicamente, quindi non scala a circuiti troppo grandi (19/07); la conversione Braket copre gate nominati + fallback generico a singolo qubit, i gate multi-qubit non comuni sollevano un errore esplicito invece di essere approssimati (22/07); il noise model IonQ non modella `ccx` (22/07, sopra).
 
 **Rilevanza per il report — ALTA:**
 Questo è l'indice da cui partire per scrivere la sezione Limitations dell'articolo. Il filo conduttore comune a tutti i punti: ogni volta che il progetto ha lasciato correre un'approssimazione, lo ha fatto dichiarandolo esplicitamente (a schermo, nel codice, o qui) invece di nasconderlo — la trasparenza sui limiti è essa stessa un risultato metodologico del progetto, non solo una nota a margine.
+
+---
+
+## 23/07/2026 — REVISIONE DEL PROFESSORE: bug fisico VQE H₂ — Hamiltoniano sbagliato + ansatz nel settore sbagliato, corretti
+
+**Cosa abbiamo osservato:**
+La code review del professore (commit `8d00f05`) ha sollevato che le affermazioni fisiche del benchmark VQE non corrispondono all'Hamiltoniano codificato. Verifica indipendente con `numpy.linalg.eigvalsh` sui `HAMILTONIAN_COEFFS` di `vqe_h2.py`: autovalori `[-1.4556, -0.7432, -0.6361, -0.4073]`. **-1.1372 Hartree (l'energia esatta di H₂, dichiarata come ground truth del benchmark) non è un autovalore di quell'Hamiltoniano.** Inoltre lo stato fondamentale di quell'Hamiltoniano (E=-1.4556) vive in span{|01⟩,|10⟩}, mentre l'ansatz `Ry(θ)→CX` produceva solo stati in span{|00⟩,|11⟩}, il cui minimo raggiungibile è esattamente -0.7432 — il "plateau" che avevamo osservato l'01/07 e interpretato come limite della misura Z-basis.
+
+**Perché succede:**
+Due errori indipendenti sommati.
+1. **Coefficienti Hamiltoniani errati.** I valori in `HAMILTONIAN_COEFFS` (attribuiti a Kandala et al. 2017) erano mal trascritti/mal assegnati: davano ground -1.4556, non -1.1372. Inoltre contenevano una coppia simmetrica XX+YY, mentre la forma ridotta a 2 qubit corretta (parity mapping + riduzione Z2) ha **un solo termine off-diagonale X₀X₁**, non XX+YY.
+2. **Ansatz nel settore di simmetria sbagliato.** `Ry(θ)|00⟩→CX` resta in span{|00⟩,|11⟩}; il ground state vero è nel settore a numero di particelle 1, span{|01⟩,|10⟩}. Partendo da |00⟩ senza uno stato di riferimento Hartree-Fock, l'ansatz non poteva fisicamente raggiungere l'energia vera, indipendentemente da θ.
+
+Conseguenza: la conclusione dell'01/07 ("Z-basis cattura ~65% dell'energia, mancano i termini XX+YY per ~0.394 Hartree") **era una diagnosi errata**. Il -0.7432 non era una stima parziale ma il minimo *esatto e completo* raggiungibile da quell'ansatz su quell'Hamiltoniano sbagliato — misurare in base X/Y non avrebbe recuperato nessuna energia mancante.
+
+**Cosa funziona davvero (verificato numericamente, non fidandoci di trascrizioni):**
+Set canonico O'Malley et al., *Phys. Rev. X* 6, 031007 (2016), H₂ STO-3G a R=0.735 Å:
+`II=-1.05237, Z₀=+0.39793, Z₁=-0.39793, Z₀Z₁=-0.01128, X₀X₁=+0.18093` (un solo termine XX). Parte elettronica: ground -1.8573 Ha. Ripiegando la repulsione nucleare (E_nuc = 1/R = +0.7199 Ha) nel termine identità, `eigvalsh` dà ground **-1.13729 Ha** = esatto (-1.1372) ✓. Lo stato fondamentale vive in span{|01⟩,|10⟩}, come previsto.
+
+Ansatz corretto (single-excitation / Givens, conserva il numero di particelle), soli gate `x/cx/ry` (convertibili su Braket): `X(q0) → CX(0,1) → Ry(θ,1) → CX(1,0)`, che parte dallo stato Hartree-Fock |01⟩ e ruota dentro il settore giusto. Raggiunge esattamente -1.13729 a θ_opt≈2.9185, zero leakage. Verificata anche la catena di misura completa: energia ricostruita da conteggi misurati (Aer reale, 10⁵ shot) = -1.1375 Ha (entro rumore statistico), fidelity 1.0, base Z da sola = -1.0975 Ha (96.5% dell'energia), il termine X₀X₁ (base X, un circuito extra con H sui due qubit) aggiunge il restante 3.5%.
+
+**Decisione presa:**
+1. `vqe_h2.py` riscritto: coefficienti corretti con repulsione nucleare esplicita, ansatz Hartree-Fock+Givens, `compute_energy_h2(counts_z, counts_x, ...)` che stima l'energia completa da due basi (Z per i termini diagonali, X per X₀X₁), `compute_energy_h2_zdiagonal()` per riportare la frazione Z-only (96.5%), `compute_fidelity_vqe` aggiornata ai nuovi stati dominanti |01⟩/|10⟩.
+2. `_get_optimal_theta()` ora fa uno scan analitico dell'energia in solo numpy (deterministico, istantaneo) invece dei 100 job Aer stocastici a 8192 shot all'import — risolve anche il nit della review sul codice morto `_energy_analytical` e sulla dipendenza da scipy/Aer al momento della creazione del circuito.
+3. `orchestrator.py`: blocco VQE esegue due circuiti (base Z e base X) su ogni backend e combina l'energia; stampa aggiornata con la nuova narrativa.
+4. Scelta consapevole misura completa Z+X (concordata con l'utente) invece della sola base Z: raddoppia i job VQE sulla QPU reale ma restituisce l'energia fisica vera, misurata non assunta — coerente con l'etica del progetto ("misuro ciò che la letteratura descrive").
+
+**Conseguenza sui dati:** tutti i dati VQE storici (fidelity e energia, README/Guida/log) sono stati prodotti con l'ansatz e le metriche vecchie e vanno **rimisurati** con il codice corretto — stesso trattamento del fix IonQ del 19/07. Solo i valori deterministici ideal/AWS (fidelity 100%, E=-1.1373) sono già confermati.
+
+**Verifica ancora aperta:** il path AWS/IonQ (conversione Braket) non è stato eseguito live in sandbox (ambiente non persistente, install braket troppo pesante), ma è coperto per costruzione — i gate `x/cx/ry/h` sono tutti nella lista supportata da `braket_utils` e già validati contro il vero SDK Braket il 22/07. Da confermare nel primo run reale dell'utente. **[AGGIORNAMENTO: il run reale ha subito rivelato il bug endianness #1 — vedi entry sotto.]**
+
+**Rilevanza per il report — ALTA (e cambia in meglio il claim):**
+La vecchia narrativa "il tool misura solo il 65% dell'energia di H₂" era sbagliata *e più debole* di quella vera. Con il setup corretto il tool **misura l'energia di ground state di H₂ a chemical accuracy (-1.1373 vs -1.1372 Ha)**: la base Z cattura il 96.5%, un solo circuito extra in base X recupera il termine X₀X₁ restante. È un claim molto più forte e ora corretto — da riscrivere così nell'articolo prima della bozza. Lezione metodologica trasversale (da includere in "Methodology"/"Lessons Learned"): una check di sanità fisica banale — `eigvalsh(H)[0] ≈ E_exact` — avrebbe intercettato subito il bug; è ora un test da inserire nella suite (vedi punto #7 della review). Un risultato "plausibile e stabile" (-0.7432 riproducibile su tutti i backend) non è garanzia di correttezza: era esatto per l'Hamiltoniano sbagliato.
+
+---
+
+## 23/07/2026 — Bug endianness Braket↔Qiskit (review #1) smascherato dal nuovo VQE, corretto
+
+**Cosa abbiamo osservato:**
+Primo re-measure VQE post-fix (`--circuit vqe --strategy accurate`, 1024 shot). L'energia sui backend Braket era palesemente sbagliata mentre la fidelity sembrava perfetta:
+
+| Backend | Counts dominante | Energia (Z+X) | Fidelity |
+|---|---|---|---|
+| ideal_simulator (Qiskit) | `01` (1008) | -1.1412 ✓ | 100.00% |
+| ibm_qpu_ibm_kingston (Qiskit) | `01` (994) | -1.1155 ✓ | 98.24% |
+| aws_local_simulator (Braket) | **`10`** (1011) | **+0.4234** ✗ | 100.00% |
+| ionq_simulator (Braket) | **`10`** (996) | **+0.4055** ✗ | 99.02% |
+
+I backend Braket riportavano `10` dove Qiskit riportava `01`: bit invertiti. La fidelity restava a 100%/99% perché `compute_fidelity_vqe` somma `01`+`10` (simmetrica → immune all'inversione), ma l'energia dipende da `⟨Z₀⟩` e `⟨Z₁⟩`, che si scambiano di segno invertendo i qubit → energia con segno ribaltato (+0.45 invece di -1.10 sulla parte Z-diagonale). Verifica numerica: la parte Z-diagonale "buggy" calcolata a mano dai counts AWS dà esattamente +0.4545, identica a quella misurata — riproduzione esatta del bug.
+
+**Perché succede:**
+Braket e Qiskit usano convenzioni opposte di ordinamento dei bit: Braket mette il qubit 0 nel bit più a sinistra della stringa dei counts, Qiskit nel più a destra. `aws.py`/`ionq.py` costruivano le chiavi unendo i bit nell'ordine nativo di Braket senza invertirle. È esattamente il bug #1 della review del professore. Era rimasto invisibile perché tutti i benchmark precedenti (Bell `00`/`11`, GHZ `000`/`111`, vecchio VQE `00`/`11`) hanno stati dominanti **palindromi** — invertire la stringa li mappa in sé stessi. Il nuovo ansatz VQE corretto ha stato dominante `01`, **asimmetrico**, e ha reso il bug immediatamente visibile.
+
+**Decisione presa:**
+Invertita la bitstring in entrambi gli adapter Braket: `"".join(str(b) for b in k)[::-1]`. Sicuro per i dati storici: Bell/GHZ sono palindromi, l'inversione è un no-op per loro. Verificato che dopo il fix i counts AWS `{'10':1011,'01':13}` diventano `{'01':1011,'10':13}` (allineati a Qiskit) e la parte Z-diagonale torna a -1.0968, in linea con l'ideale (-1.0921, differenza = solo rumore di shot). Restano NON ancora affrontate le due sfaccettature minori del punto #1, rilevanti solo per il path QASM custom (non per Bell/GHZ/VQE che misurano tutti i qubit): (1a) i qubit inattivi vengono scartati da Braket → chiavi più corte del riferimento, da padding; (1b) la mappa di misura (`measure q[i]->c[j]`) viene ignorata. Da fare quando si consolida il caso d'uso 2.
+
+**Rilevanza per il report — ALTA (doppia lezione metodologica):**
+1. **Una metrica simmetrica può nascondere un bug asimmetrico.** La fidelity (simmetrica per costruzione su Bell/GHZ/VQE) ha mascherato per settimane un errore di ordinamento dei bit; è emerso solo quando una *seconda* metrica sensibile all'ordine (l'energia) è stata calcolata su uno stato asimmetrico. Argomento diretto per la sezione Methodology: usare metriche con sensibilità diverse, non una sola.
+2. **Correggere un bug ne ha rivelato un altro.** Il fix VQE (stato dominante da palindromo `00`/`11` ad asimmetrico `01`) ha trasformato il bug endianness da latente a osservabile — esempio da manuale del perché i test vanno fatti su input asimmetrici (esattamente il test che la review raccomanda al punto #7). Da citare come caso concreto nel report.
+
+---
+
+## 23/07/2026 — Convergenza energia VQE vs shot: rumore statistico vs bias sistematico
+
+**Cosa abbiamo osservato:**
+Nuovo benchmark `vqe_energy_convergence.py` (energia VQE vs numero di shot, 10 repliche/punto, 128→8192 shot) su ideal/noisy/IonQ. Dati:
+
+| Shots | ideal E±std (mHa off) | noisy E±std (mHa off) | IonQ E±std (mHa off) |
+|---|---|---|---|
+| 128  | -1.1470 ± 19.8 mHa (9.8) | -1.0798 ± 14.0 (57.4) | -1.1223 ± 24.7 (14.9) |
+| 1024 | -1.1395 ± 6.6 mHa (2.3)  | -1.0845 ± 9.0 (52.7)  | -1.1251 ± 8.9 (12.1) |
+| 4096 | **-1.1372 ± 4.2 mHa (0.0)** | -1.0851 ± 4.5 (52.1) | -1.1235 ± 5.5 (13.7) |
+| 8192 | -1.1368 ± 2.2 mHa (0.4)  | -1.0857 ± 3.4 (51.5)  | -1.1221 ± 3.3 (15.1) |
+
+Std ideale (128→8192): `[19.8, 8.6, 9.6, 6.6, 4.0, 4.2, 2.2]` mHa — scala pulito come 1/√shots (4× shot → ~½ std).
+
+**Perché è rilevante:**
+1. **L'ideale converge all'esatto:** la media entra nella banda di chemical accuracy (±1.6 mHa) da ~2048 shot, e a 4096 shot è -1.1372 esatto (0.0 mHa). Conferma sperimentale, non solo analitica, che l'ansatz+Hamiltoniano sono corretti.
+2. **Statistico vs sistematico:** i due backend rumorosi non convergono all'esatto — si fermano su un plateau (noisy ~-1.085, bias ~51 mHa; IonQ ~-1.123, bias ~13 mHa). Più shot restringono le barre d'errore (rumore statistico ∝ 1/√shots) ma non spostano il plateau (bias sistematico del noise model). È la distinzione tra errore statistico (mediabile) ed errore sistematico (non mediabile) resa visibile su un dato reale.
+3. **IonQ meno biased di IBM noisy sull'energia** (13 vs 51 mHa): stessa direzione già osservata su fidelity (29/06, 20/07: noise model IonQ ottimistico), ora quantificata su una seconda metrica indipendente — buona conferma incrociata.
+4. **Onestà sul claim chemical accuracy:** lo std di singolo run non scende mai sotto 1.6 mHa nel range testato (2.2 mHa anche a 8192). Quindi la chemical accuracy è raggiunta dallo *stimatore mediato* su repliche, non da un singolo run a pochi shot — l'ansatz la raggiunge esattamente (proprietà del circuito), ma dimostrarla su hardware/simulatore richiede o repliche o ~20k+ shot per run.
+
+**Decisione presa:**
+Nessuna modifica al codice del tool. Aggiunto `vqe_energy_convergence.py` come benchmark separato (companion di `shots_efficiency.py`). Dati salvati in `results/vqe_energy_convergence.{png,json}`.
+
+**Rilevanza per il report — ALTA:**
+Grafico forte e diretto per l'articolo, che unisce due fili del progetto: la disciplina delle repliche (dal 29/06) e la storia del bias IonQ. Frase citabile: *"shot noise averages out as 1/√N and the ideal estimator reaches chemical accuracy, but the noise-model bias is systematic — additional shots shrink the error bars without moving the plateau, cleanly separating statistical from systematic error on a measured observable."* Da affiancare al grafico shots-efficiency della fidelity: uno mostra la convergenza della varianza, l'altro la distinzione varianza-vs-bias sull'energia.
+
+---
+
+## 23/07/2026 — Suite di test minima (review #7): ha stanato subito il facet 1a dell'endianness
+
+**Cosa abbiamo osservato:**
+Aggiunta la suite di test minima raccomandata dalla review (`tests/`, `unittest` stdlib, nessuna nuova dipendenza), tre file: `test_fidelity.py` (funzioni di fidelity su counts sintetici), `test_vqe_physics.py` (sanity fisica VQE, incluso `eigvalsh(H)[0] ≈ E_exact`), `test_braket_endianness.py` (round-trip Qiskit↔Braket su circuito **asimmetrico**). 18 test totali. Al primo run, il test endianness su AWS ha fallito con un errore inatteso: circuito "X sul qubit 0" (qubit 1 inattivo) → i backend Braket restituivano `{'1': 2000}`, chiave di **un solo carattere** invece di `01`. Non era il facet principale dell'endianness (già corretto con l'inversione della bitstring), ma il **facet 1a della review**: Braket campiona solo i qubit che compaiono nel circuito, quindi un qubit inattivo viene omesso dalla stringa dei counts.
+
+**Perché succede:**
+Il facet 1a era stato dichiarato "aperto, rilevante solo per QASM custom" nella entry endianness precedente. Il test l'ha materializzato con un circuito minimale asimmetrico con qubit inattivo — esattamente lo scenario che un utente del caso d'uso 2 potrebbe passare. Bell/GHZ/VQE non lo attivano perché hanno tutti i qubit attivi.
+
+**Decisione presa:**
+1. Corretto 1a in `braket_utils.qiskit_to_braket()`: padding con identità (`braket_circuit.i(q)`) su ogni qubit `range(num_qubits)` prima della conversione dei gate, così ogni qubit compare nel circuito Braket e viene misurato. No-op per i circuiti con tutti i qubit attivi (Bell/GHZ/VQE) → dati storici non toccati. Dopo il fix i 3 test endianness passano.
+2. Suite eseguibile con `python -m unittest discover -s tests`. I test che richiedono l'ambiente completo (fidelity generica → `qiskit_ibm_runtime`) si auto-skippano invece di fallire.
+3. Resta aperto il solo facet 1b (mappa di misura `measure q[i]->c[j]` ignorata, rilevante solo per QASM custom che misurano un sottoinsieme o rimappano i bit classici) — nessun built-in lo attiva; da affrontare se/quando si consolida il caso d'uso 2.
+
+**Rilevanza per il report — ALTA (meta-punto):**
+Esempio concreto e citabile del valore dei test: la suite ha trovato un bug reale (1a) **lo stesso giorno in cui è stata scritta**, su un input asimmetrico — esattamente la classe di input che la review indicava come necessaria e che i circuiti simmetrici del progetto non potevano coprire. Rafforza la lezione già emersa oggi (metrica simmetrica nasconde bug asimmetrico): non solo le metriche, ma anche i *test* vanno progettati su casi asimmetrici. I due test-chiave (`eigvalsh` e round-trip asimmetrico) sono ora una rete di regressione permanente contro i due bug severità-alta corretti oggi.
+
+---
+
+## 23/07/2026 — Rumore IonQ ora interlacciato coi gate (review #3): scala con la profondità
+
+**Cosa abbiamo osservato:**
+La review (#3) ha rilevato, dumpando la lista di istruzioni Braket, che in `ionq.py` tutti i canali di rumore erano appesi **alla fine** del circuito: il depolarizing a singolo qubit una volta per *qubit* (non per gate) e quello a due qubit dopo tutti i gate. Due conseguenze: (a) un circuito profondo 100 riceveva lo stesso rumore 1-qubit di uno profondo 1; (b) col rumore dopo tutti i gate, un errore a metà circuito non si propagava attraverso i gate successivi.
+
+**Perché succede:**
+La prima implementazione (29/06) applicava il rumore in blocco alla fine perché sufficiente per i circuiti piccoli iniziali. Braket applica il rumore nella posizione in cui compare nello stream di istruzioni — quindi appenderlo alla fine lo scollega dalla profondità del circuito.
+
+**Decisione presa:**
+Riscritta l'applicazione del rumore in `ionq.py` usando `Circuit.apply_gate_noise(...)`, il metodo idiomatico di Braket che inserisce il canale **subito dopo ogni gate** del tipo indicato, nella posizione giusta dello stream:
+- `Depolarizing(0.0003)` su ogni gate a 1 qubit (H, X, Y, Z, S, Si, T, Ti, Rx, Ry, Rz) — ora una volta *per gate*, non per qubit;
+- `TwoQubitDepolarizing(0.003)` su ogni gate entangling (CNot, CZ, Swap) — ora interlacciato tra i gate, così l'errore si propaga;
+- `bit_flip(0.005)` di readout resta alla fine (è genuinamente un errore di misura).
+Guardie `has_1q`/`has_2q` per non chiamare `apply_gate_noise` su tipi di gate assenti. `ccx` resta non modellato (nessun equivalente 2-qubit diretto su 3 qubit, come 22/07). Gate generici a singolo qubit che diventano `Unitary` (u/u1/u2/u3 via fallback braket_utils) non sono coperti dalla lista nominata — gap minore dichiarato, nessun circuito built-in lo attiva. Tassi di errore invariati (0.03% / 0.3% / 0.5%): è cambiata la *posizione* del rumore, non la sua intensità.
+
+**Verifiche (con vero SDK Braket):**
+1. Dump istruzioni: DEPO(0.0003) dopo ogni gate 1q, TwoQubitDepolarizing dopo ogni CNot tra i gate, BitFlip alla fine — interlacciamento confermato.
+2. Scala con la profondità: `H + Z^n + H` (ideale |0⟩) dà fidelity `0.9996 / 0.9977 / 0.9903 / 0.9591` per n = `0 / 10 / 50 / 200` — il rumore cresce con la profondità, mentre col vecchio modello sarebbe stato costante.
+3. GHZ via adapter reale: dominante 000/111, fidelity 0.9822.
+
+**Conseguenza sui dati — IonQ da rimisurare:**
+Tutte le misure IonQ storiche (Bell/GHZ/VQE in README/Guida/log) usano il vecchio modello e vanno rimisurate — stesso trattamento del fix IonQ del 19/07. In particolare per GHZ il nuovo modello applica il depolarizing 1q solo dove c'è un gate a singolo qubit (solo H su q0), non su q1/q2 che prima ricevevano rumore 1q spurio pur non avendo gate a singolo qubit — quindi la fidelity IonQ tende a salire leggermente rispetto ai dati pre-fix. Non tocca IBM (Aer/QPU non passano da questa funzione) né AWS (simulatore ideale senza rumore).
+
+**Rilevanza per il report — MEDIA-ALTA:**
+Chiude l'ultimo punto di sostanza della review. Rilevante ora che il tool pubblicizza circuiti QASM arbitrari (profondità variabile): il noise model IonQ è ora fisicamente sensato sulla profondità, non solo sul conteggio dei gate entangling. Collegamento diretto alla domanda aperta più volte nel log (29/06, 20/07: "perché IonQ resta ottimista?") — parte della risposta era anche questa, il rumore non scalava con la profondità. Da rieseguire il benchmark IonQ e aggiornare i numeri prima dell'articolo.
+
+---
+
+## 23/07/2026 — Repliche di riferimento dei simulatori fissate a n=100
+
+**Cosa abbiamo osservato:**
+La tabella-confronto fidelity/energia (Bell/GHZ/VQE × backend) usa come riferimento la media su repliche dei backend simulati (noisy Aer, IonQ). I simulatori girano in locale a costo zero, quindi lo standard per queste medie di riferimento è **n=100 repliche a 1024 shot**. Il QPU reale resta a n=5: ogni replica costa tempo di coda + quota IBM, quindi lì il campione è deliberatamente contenuto.
+
+Dati n=100 (1024 shot), fidelity:
+
+| Circuito | noisy (n=100) | IonQ (n=100) |
+|---|---|---|
+| Bell | 95.53% ± 0.67% | 98.86% ± 0.31% |
+| GHZ  | 93.00% ± 0.86% | 98.15% ± 0.49% |
+| VQE  | 95.11% ± 0.71% | 98.67% ± 0.37% |
+
+Energia VQE (Z+X, 1024 shot, n=100): noisy -1.0877 ± 0.011 Ha (bias ~50 mHa); IonQ -1.1236 ± 0.008 Ha (bias ~14 mHa).
+
+**Perché è rilevante — nota statistica da non dimenticare:**
+Le medie coincidono coi valori a campione più piccolo (differenze < rumore). **Il "± std" riportato è la dispersione tra run singoli** (una proprietà del rumore a 1024 shot) e **non si stringe aumentando le repliche** — a stringersi è l'*errore sulla media* (std/√n, cioè quanto è fissata la media): da ~0.27% a ~0.086% passando da n=10 a n=100. Quindi n=100 non serve a barre d'errore più strette (quelle restano ~uguali), ma a una **media di riferimento solida**. Attenzione a non descriverlo come "barre più strette" nell'articolo.
+
+**Decisione presa:**
+Nessuna modifica al codice del tool. Dati n=100 generati con lo stesso codice e gli stessi noise model del repo (riproducibili). Aggiornate le tabelle di articolo, README e Guida. Gli **studi di convergenza** (shots-efficiency e energia-vs-shot) restano a **n=10 per punto**: sono sweep di tendenza su molti valori di shot, non confronti a condizione singola, e n=10/punto è lo standard per quel tipo di grafico.
+
+**Rilevanza per il report — MEDIA:**
+Rende la metà simulata delle tabelle statisticamente robusta senza costo di quota; il QPU reale a n=5 va presentato come scelta motivata (hardware razionato), non come statistica insufficiente — è già così nella sezione Limitazioni dell'articolo.
 
 ---

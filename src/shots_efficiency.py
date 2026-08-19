@@ -55,9 +55,10 @@ def run_shots_efficiency(circuit, fidelity_fn, label, noisy: bool = True):
     return results
 
 
-def plot_comparison(bell_results, ghz_results, filename=None):
+def plot_comparison(bell_results, ghz_results, filename=None, show=False):
     """
     Plots mean fidelity vs shots with error bars (std dev) for both circuits.
+    The PNG is always saved; pass show=True (CLI: --show) to also open a window.
     """
     filename = filename or os.path.join(RESULTS_DIR, "shots_efficiency.png")
     fig, ax = plt.subplots(figsize=(9, 6))
@@ -89,7 +90,9 @@ def plot_comparison(bell_results, ghz_results, filename=None):
     plt.tight_layout()
     plt.savefig(filename, dpi=150, bbox_inches='tight')
     print(f"\n[GRAPH] Saved to {filename}")
-    plt.show()
+    if show:
+        plt.show()
+    plt.close()
 
 
 def save_results(results, path=None):
@@ -100,6 +103,12 @@ def save_results(results, path=None):
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Shots efficiency benchmark")
+    parser.add_argument("--show", action="store_true",
+                        help="Open the plot in a window (PNG is always saved)")
+    args = parser.parse_args()
+
     bell = create_bell_circuit()
     ghz  = create_ghz_circuit(n_qubits=3)
 
@@ -108,7 +117,7 @@ if __name__ == "__main__":
 
     all_results = bell_results + ghz_results
     save_results(all_results)
-    plot_comparison(bell_results, ghz_results)
+    plot_comparison(bell_results, ghz_results, show=args.show)
 
     # ── Statistical analysis ────────────────────────────────────────
     print("\n=== Convergence analysis (mean ± std) ===")

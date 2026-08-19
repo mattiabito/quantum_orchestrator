@@ -41,30 +41,52 @@ class IonQSimulatorAdapter(BackendAdapter):
         return 0.0
 
     def run(self, circuit, shots=1024) -> dict:
+        from braket.circuits import Gate
+        from braket.circuits.noises import Depolarizing, TwoQubitDepolarizing
+
         # Convert Qiskit circuit to Braket
         braket_circuit = qiskit_to_braket(circuit)
 
-        # Apply IonQ realistic noise profile
-        # Single-qubit depolarizing: 0.03%
-        for q in range(circuit.num_qubits):
-            braket_circuit.depolarizing(q, probability=0.0003)
+        # Apply the IonQ noise profile INTERLEAVED with the gates, not appended
+        # at the end. apply_gate_noise inserts each channel right after every
+        # matching gate in the instruction stream, which fixes two problems of
+        # the previous end-of-circuit approach (see Technical Decisions Log 23/07,
+        # review #3):
+        #   (a) single-qubit depolarizing is now applied once per 1q GATE, not
+        #       once per qubit — so noise scales with circuit depth (a depth-100
+        #       circuit no longer receives the same 1q noise as a depth-1 one);
+        #   (b) two-qubit depolarizing sits between the entangling gates, so a
+        #       mid-circuit error propagates through the subsequent gates instead
+        #       of being tacked on after everything.
+        # Error rates unchanged: 1q ~0.03%, 2q ~0.3% (CNOT/CZ/SWAP), readout ~0.5%.
+        SINGLE_QUBIT_GATES = [Gate.H, Gate.X, Gate.Y, Gate.Z, Gate.S, Gate.Si,
+                              Gate.T, Gate.Ti, Gate.Rx, Gate.Ry, Gate.Rz]
+        TWO_QUBIT_GATES    = [Gate.CNot, Gate.CZ, Gate.Swap]
 
-        # Two-qubit depolarizing on entangling gates: 0.3%
-        # (was cx-only before — CNOT is the dominant error source on
-        # entangled circuits, see Technical Decisions Log 19/07. Extended
-        # to cz/swap on 22/07 now that braket_utils converts them too.
-        # ccx (Toffoli) is NOT modeled here — it acts on 3 qubits and has
-        # no direct two_qubit_depolarizing equivalent; see Technical
-        # Decisions Log 22/07 for why this is left as a known gap.)
-        for instruction in circuit.data:
-            if instruction.operation.name in ('cx', 'cz', 'swap'):
-                q0, q1 = [circuit.find_bit(q).index for q in instruction.qubits]
-                braket_circuit.two_qubit_depolarizing(q0, q1, probability=0.003)
-            elif instruction.operation.name == 'ccx':
-                print("[IonQ] Warning: ccx (Toffoli) has no two-qubit noise "
-                      "model applied — result fidelity for this gate is optimistic")
+        gate_names = {instr.operation.name for instr in circuit.data}
+        has_1q = bool(gate_names & {'h', 'x', 'y', 'z', 's', 'sdg',
+                                    't', 'tdg', 'rx', 'ry', 'rz'})
+        has_2q = bool(gate_names & {'cx', 'cz', 'swap'})
 
-        # Readout error: 0.5% bit flip on each qubit
+        if has_1q:
+            braket_circuit.apply_gate_noise(
+                Depolarizing(0.0003), target_gates=SINGLE_QUBIT_GATES)
+        if has_2q:
+            braket_circuit.apply_gate_noise(
+                TwoQubitDepolarizing(0.003), target_gates=TWO_QUBIT_GATES)
+
+        # ccx (Toffoli, 3 qubits) still has no two-qubit noise model — a 3-qubit
+        # gate has no direct two_qubit_depolarizing equivalent, and inventing one
+        # would be an unvalidated approximation (see Technical Decisions Log 22/07).
+        # Generic single-qubit gates that route to a Braket Unitary (u/u1/u2/u3
+        # and custom gates via braket_utils' fallback) are likewise not covered
+        # by the named-gate list above — a known, documented gap for exotic
+        # custom-QASM circuits; all built-in circuits use named gates only.
+        if 'ccx' in gate_names:
+            print("[IonQ] Warning: ccx (Toffoli) has no two-qubit noise "
+                  "model applied — result fidelity for this gate is optimistic")
+
+        # Readout error: 0.5% bit flip on each qubit, applied last (measurement).
         for q in range(circuit.num_qubits):
             braket_circuit.bit_flip(q, 0.005)
 
@@ -73,8 +95,14 @@ class IonQSimulatorAdapter(BackendAdapter):
         result  = task.result()
         elapsed = round(time.time() - t, 3)
 
+        # Reverse the bitstring: Braket orders qubit 0 leftmost, Qiskit
+        # rightmost. Without this, asymmetric states (e.g. the VQE |01>
+        # state) are mislabeled ('01' <-> '10') and bit-order-dependent
+        # metrics like the VQE energy come out wrong. Bell/GHZ are
+        # palindromes, so this is a no-op for them. (See braket bit-order
+        # note in aws.py — same root cause, same fix.)
         counts = {
-            "".join(str(b) for b in k): v
+            "".join(str(b) for b in k)[::-1]: v
             for k, v in result.measurement_counts.items()
         }
 

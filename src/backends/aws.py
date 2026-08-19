@@ -38,10 +38,16 @@ class AWSSimulatorAdapter(BackendAdapter):
         result = task.result()
         elapsed = round(time.time() - t, 3)
 
-        # Braket returns measurement counts as {tuple: count}
-        # Convert to Qiskit-style string keys: '00', '11', etc.
+        # Braket returns measurement counts as {tuple: count}.
+        # Braket and Qiskit use opposite bit orderings: Braket puts qubit 0
+        # in the leftmost bit, Qiskit in the rightmost. Reverse the bitstring
+        # so the keys match the Qiskit reference distribution — otherwise any
+        # asymmetric state (e.g. the VQE |01> state) is silently mislabeled
+        # (e.g. '01' <-> '10'), which corrupts every bit-order-dependent
+        # metric such as the VQE energy. Bell/GHZ are palindromes, so this
+        # reversal is a no-op for them (their historical data is unaffected).
         counts = {
-            "".join(str(b) for b in k): v
+            "".join(str(b) for b in k)[::-1]: v
             for k, v in result.measurement_counts.items()
         }
 

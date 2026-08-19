@@ -38,8 +38,8 @@ Built as an extension of my BSc thesis in Computer Engineering (University of Pe
 ## Quick start
 
 ```bash
-git clone https://github.com/mattiabitocchi/quantum-orchestrator
-cd quantum-orchestrator
+git clone https://github.com/mattiabito/quantum_orchestrator
+cd quantum_orchestrator
 pip install -r requirements.txt
 cp .env.example .env  # add your IBM API key
 python src/orchestrator.py
@@ -63,6 +63,18 @@ Runs Bell and GHZ at increasing shot counts (10 replicas each) on the noisy simu
 python src/shots_efficiency.py
 ```
 
+### VQE energy convergence benchmark
+Measures the VQE H₂ energy vs shot count (10 replicas each) on the local simulators, showing convergence to the exact energy against the chemical-accuracy band, and the systematic noise-model bias.
+```bash
+python src/vqe_energy_convergence.py
+```
+
+### Tests
+A minimal test suite (no extra dependencies, uses the standard-library `unittest`) locks in the fidelity metrics, the VQE physics (`eigvalsh(H)[0] ≈ exact ground energy`), and the Qiskit↔Braket bit-order round-trip on an asymmetric circuit.
+```bash
+python -m unittest discover -s tests
+```
+
 ---
 
 ## Results
@@ -72,30 +84,42 @@ python src/shots_efficiency.py
 | Backend | Fidelity | Queue | Exec |
 |---|---|---|---|
 | ideal_simulator | 100.00% | 0s | 0.03s |
-| noisy_simulator | ~95–97% | 0s | 0.01s |
+| noisy_simulator | 95.53% ± 0.67% (n=100) | 0s | 0.01s |
 | ibm_qpu_ibm_marrakesh | 97.95–98.93% | 10–42s | 2s |
 | aws_local_simulator | 100.00% | 0s | 0.03s |
-| ionq_simulator | 98.73% | 0s | 0.55s |
+| ionq_simulator | 98.86% ± 0.31% (n=100) | 0s | 0.5s |
 
 ### GHZ state (3 qubits, 5 replicas on real QPU)
 
 | Backend | Fidelity | Queue | Exec |
 |---|---|---|---|
 | ideal_simulator | 100.00% | 0s | 0.03s |
-| noisy_simulator | 93.47% ± 0.83% | 0s | 0.01s |
+| noisy_simulator | 93.00% ± 0.86% (n=100) | 0s | 0.01s |
 | ibm_qpu (fez/marrakesh) | 94.63% ± 1.70% | 10.6–116.6s | 2s |
 | aws_local_simulator | 100.00% | 0s | 0.04s |
-| ionq_simulator | 97.72–97.89% ± ~0.5% | 0s | 0.8s |
+| ionq_simulator | 98.15% ± 0.49% (n=100) | 0s | 0.8s |
 
-### VQE H₂ (2 qubits, 5 replicas on real QPU)
+### VQE H₂ (2 qubits — full ground-state energy, Z + X basis)
+
+Energy from n=100 replicas at 1024 shots for the local simulators; real QPU is a
+single reference run. Bias = offset of the plateau from the exact energy.
 
 | Backend | Fidelity | Energy (Hartree) | Queue | Exec |
 |---|---|---|---|---|
-| ideal_simulator | 100.00% | -0.7432 | 0s | 0.01s |
-| noisy_simulator | 95.29% ± 0.70% | ~-0.73 | 0s | 0.01s |
-| ibm_qpu (fez/marrakesh) | 97.30% ± 1.79% | ~-0.72 | 10.6–33.4s | 2s |
-| aws_local_simulator | 100.00% | -0.7432 | 0s | 0.04s |
-| ionq_simulator | 98.68–98.83% ± ~0.3% | ~-0.73 | 0s | 0.6s |
+| ideal_simulator | 100.00% | → -1.1372 (converges to exact) | 0s | 0.01s |
+| noisy_simulator | 95.11% ± 0.71% (n=100) | -1.0877 ± 0.011 (bias ~50 mHa) | 0s | 0.01s |
+| ibm_qpu_ibm_kingston | 98.34% (n=1) | -1.1197 (n=1) | 11.3s | 2s |
+| aws_local_simulator | 100.00% | → -1.1372 (converges to exact) | 0s | 0.04s |
+| ionq_simulator | 98.67% ± 0.37% (n=100) | -1.1236 ± 0.008 (bias ~14 mHa) | 0s | 0.4s |
+
+The noiseless backends (ideal, AWS) converge to the exact H₂ ground state
+(-1.1372 Hartree, full CI in STO-3G): the replica mean reaches the chemical-accuracy
+band (±1.6 mHa) from ~2048 shots and hits -1.1372 exactly at 4096 shots. The
+noisy and IonQ backends plateau at a *systematic* offset (their noise-model bias):
+more shots shrink the error bars but do not move the plateau — cleanly separating
+statistical shot noise (∝ 1/√shots) from systematic noise-model bias. IonQ's bias
+(~14 mHa) is smaller than IBM's noisy-model bias (~50 mHa), consistent with IonQ's
+more optimistic noise model. See `results/vqe_energy_convergence.png`.
 
 **Key finding — queue vs execution:** real QPU execution takes 2 seconds across all circuits. Queue time ranges from 10 seconds to 61 minutes on the same machine. Queue/execution ratio: up to 1822:1. This is the empirical demonstration of what the QCaaS literature describes only qualitatively.
 
@@ -103,7 +127,9 @@ python src/shots_efficiency.py
 
 **Caveat — IonQ is a calibrated noise-model simulator, not physical hardware.** The `ionq_simulator` numbers above come from a Braket density-matrix simulator with vendor-published error rates, not a measurement on physical trapped-ion hardware. It is not directly equivalent to the IBM QPU rows, which are real hardware measurements. Replicated data (n=5-10) shows IonQ consistently at or above real IBM QPU fidelity on GHZ, but this reflects the noise model's calibration, not a physical hardware comparison — treat it as a reference point, not a "IonQ beats IBM" claim.
 
-**Caveat — VQE H₂ energy is a Z-basis-only partial estimate.** The exact ground-state energy is -1.1372 Hartree; this benchmark's Z-basis-only measurement captures ~65% of it (~-0.7432 Hartree), missing the off-diagonal XX+YY Hamiltonian terms (~0.394 Hartree), which require additional circuit executions with basis-rotation gates. The fidelity metric (dominant-state measurement) is unaffected by this limitation and reflects genuine circuit execution quality.
+> **Note:** the IonQ noise model was updated so that gate noise is interleaved with the circuit (scaling with depth) rather than applied at the end. The IonQ numbers in the tables above have been re-measured (n=10) under this corrected model; IBM and AWS numbers are unaffected. GHZ fidelity rose slightly (≈97.8% → 98.1%) because the old model over-applied single-qubit noise to qubits that carry no single-qubit gate.
+
+**VQE H₂ — full ground-state energy to chemical accuracy.** The benchmark uses the 2-qubit reduced H₂ Hamiltonian (parity mapping + Z2 reduction; coefficients from O'Malley et al., *Phys. Rev. X* 6, 031007, 2016) and a particle-conserving single-excitation ansatz that starts from the Hartree-Fock reference state. Energy is measured in two bases: the Z basis gives the diagonal terms (~96.5% of the energy, ~-1.0973 Hartree) and one X-basis circuit gives the single off-diagonal X₀X₁ term (the remaining ~3.5%). Summing both recovers -1.1373 Hartree on the ideal simulator, matching the exact ground state (-1.1372 Hartree) to chemical accuracy. The fidelity metric measures leakage out of the dominant |01⟩/|10⟩ states and reflects circuit-execution quality on each backend.
 
 ---
 
@@ -184,6 +210,8 @@ Pass any `.qasm` file and let the orchestrator handle provider selection, queue 
 - [x] JSON structured output (NDJSON)
 - [x] Shots efficiency benchmark (10 replicas per shot count)
 - [x] Systematic benchmark across all circuits and backends, including replicated real-QPU measurements
+- [x] VQE H₂ energy to chemical accuracy (Z + X basis) with energy-vs-shots convergence analysis
+- [x] Minimal regression test suite (fidelity, VQE physics, Qiskit↔Braket bit-order)
 
 ---
 

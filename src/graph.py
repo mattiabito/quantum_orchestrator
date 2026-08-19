@@ -5,7 +5,7 @@ from paths import RESULTS_DIR
 
 def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
                             title="Backend Comparison",
-                            filename=None):
+                            filename=None, show=False):
     """
     Generates a bar chart comparing measurement results across backends.
     Supports 2 to 5 backends dynamically.
@@ -18,6 +18,10 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
       log5      — IonQ simulator (optional)
       title     — chart subtitle, shown after "Quantum Orchestrator —"
       filename  — output path for the saved PNG (defaults to results/backend_comparison.png at the project root)
+      show      — if True, open an interactive window (plt.show()). Off by
+                  default so the orchestrator pipeline doesn't block between
+                  circuits and stays usable in headless/redirected runs — the
+                  PNG is always saved regardless.
     """
     filename = filename or os.path.join(RESULTS_DIR, "backend_comparison.png")
 
@@ -115,7 +119,10 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
         d_ionq = (log1['fidelity'] - log5['fidelity']) * 100
         parts.append(f"Ideal→IonQ: -{d_ionq:.2f}%")
 
-    parts.append("Gate error: 0.1% (1Q) / 1% (CNOT)  |  Readout: 2%")
+    # Scope the noise parameters to the backend they actually describe.
+    # These are the noisy_simulator (IBM Aer) model values — AWS is noiseless
+    # and IonQ uses its own model, so labelling this globally was misleading.
+    parts.append("noisy_simulator model — gate error: 0.1% (1Q) / 1% (CNOT)  |  readout: 2%")
 
     fig.text(0.5, 0.01, "  |  ".join(parts), ha='center', fontsize=9, color='gray')
 
@@ -125,7 +132,9 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
     os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
     plt.savefig(filename, dpi=150, bbox_inches='tight')
     print(f"[GRAPH] Saved to {filename}")
-    plt.show()
+    if show:
+        plt.show()
+    plt.close(fig)  # free the figure — avoids accumulating one per circuit
 
 
 if __name__ == "__main__":

@@ -16,12 +16,27 @@ def qiskit_to_braket(qiskit_circuit):
     (see Technical Decisions Log, 22/07 — this used to skip and stay
     quiet about it, which is worse).
 
+    Measurements must be the identity map (every qubit i into classical bit i)
+    or absent; a partial or remapped measurement raises UnsupportedGateError,
+    because Braket samples all qubits in index order and cannot honor a custom
+    measure map.
+
     Shared by AWSSimulatorAdapter and IonQSimulatorAdapter — both run on
     Braket devices and need the same conversion.
     """
     from braket.circuits import Circuit
 
     braket_circuit = Circuit()
+    measurements   = []  # (qubit_index, clbit_index) pairs, validated at the end
+
+    # Pad every qubit with an identity so idle qubits are not dropped from the
+    # measurement. Braket only samples qubits that appear in the circuit, so a
+    # qubit with no gate (e.g. qubit 1 in an "X on qubit 0" circuit) would be
+    # omitted, yielding a count key shorter than the Qiskit reference (e.g. '1'
+    # instead of '01'). Identity is a no-op for circuits where every qubit is
+    # already active (Bell/GHZ/VQE), so historical data is unaffected.
+    for q in range(qiskit_circuit.num_qubits):
+        braket_circuit.i(q)
 
     for instruction in qiskit_circuit.data:
         gate_name = instruction.operation.name
@@ -57,8 +72,15 @@ def qiskit_to_braket(qiskit_circuit):
             braket_circuit.swap(qubits[0], qubits[1])
         elif gate_name == 'ccx':
             braket_circuit.ccnot(qubits[0], qubits[1], qubits[2])
-        elif gate_name in ('measure', 'barrier'):
-            pass  # measurement handled by shots-based sampling, barrier has no physical effect
+        elif gate_name == 'measure':
+            # Braket samples every qubit in index order at the end, so it can't
+            # honor an arbitrary measure map. Record the mapping and validate it
+            # is the identity (qubit i -> classical bit i) after the loop —
+            # anything else would diverge from the Qiskit reference distribution.
+            clbit = qiskit_circuit.find_bit(instruction.clbits[0]).index
+            measurements.append((qubits[0], clbit))
+        elif gate_name == 'barrier':
+            pass  # barrier has no physical effect
         elif len(qubits) == 1:
             # Generic fallback for any other single-qubit gate (u, u1, u2, u3,
             # custom gates, ...) — no ordering ambiguity for a single target.
@@ -74,6 +96,29 @@ def qiskit_to_braket(qiskit_circuit):
             raise UnsupportedGateError(
                 f"Gate '{gate_name}' on {len(qubits)} qubits has no named or "
                 f"generic Braket conversion — refusing to silently drop it."
+            )
+
+    # Fail loud if the circuit uses a non-identity measurement map. Braket
+    # samples all qubits in index order, so a partial measurement or a remapped
+    # classical register (e.g. `measure q[1] -> c[0];`) would misalign the count
+    # bitstring against the Qiskit reference. Rather than silently produce wrong
+    # fidelity, reject it — consistent with the fail-loud policy for unsupported
+    # gates (see Technical Decisions Log, 22/07). Circuits with no measurement,
+    # or that measure every qubit i into classical bit i, pass through.
+    if measurements:
+        n        = qiskit_circuit.num_qubits
+        mapping  = dict(measurements)
+        identity = (len(measurements) == n
+                    and len(mapping) == n
+                    and all(mapping.get(i) == i for i in range(n)))
+        if not identity:
+            raise UnsupportedGateError(
+                "Non-identity or partial measurement map is not supported on the "
+                "Braket backends: Braket samples all qubits in order, so a custom "
+                "measure map (measuring a subset, or remapping classical bits) "
+                "would diverge from the Qiskit reference distribution. Measure "
+                "every qubit with qubit i -> classical bit i, or run this circuit "
+                "on the IBM backends."
             )
 
     return braket_circuit

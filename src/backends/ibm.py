@@ -11,7 +11,30 @@ from dotenv import load_dotenv
 load_dotenv()
 
 ABSOLUTE_TIMEOUT_S = 1800  # 30 minutes
-ESTIMATED_EXEC_S   = 10    # conservative IBM QPU execution estimate (seconds)
+ESTIMATED_EXEC_S   = 10    # fallback estimate (seconds) — used only if no circuit
+                           # is available yet to measure (see estimate_exec_s below)
+
+# Rough proportional model of real QPU execution time, calibrated against the
+# empirical finding that execution on real IBM hardware is stable at ~2s for
+# every circuit measured so far (Technical Decisions Log — queue-vs-execution).
+# BASE_QPU_LATENCY_S covers fixed job submission/retrieval overhead; PER_GATE_S
+# is a conservative per-gate contribution once transpiled. This is intentionally
+# coarse (documented as a limitation): it makes the threshold a genuine function
+# of the submitted circuit instead of a fixed constant, but the two constants
+# below are not empirically fitted per backend.
+BASE_QPU_LATENCY_S = 2.0
+PER_GATE_S         = 0.05
+
+
+def estimate_exec_s(circuit=None) -> float:
+    """
+    Estimates real QPU execution time in seconds for the given circuit.
+    Falls back to the conservative ESTIMATED_EXEC_S constant if no circuit
+    is provided (e.g. a caller that hasn't wired the circuit through yet).
+    """
+    if circuit is None:
+        return ESTIMATED_EXEC_S
+    return round(BASE_QPU_LATENCY_S + circuit.depth() * PER_GATE_S, 2)
 
 
 # ─────────────────────────────────────────
@@ -37,21 +60,33 @@ def connect_ibm():
         return None
 
 
-def pick_best_ibm_backend(service):
+def pick_best_ibm_backend(service, circuit=None):
     """
     Autonomously selects the best available IBM backend.
     Criteria: operational + minimum pending jobs.
+
+    circuit: the circuit about to be submitted. When provided, the returned
+    execution estimate is a real function of this circuit (see
+    estimate_exec_s) instead of the fixed ESTIMATED_EXEC_S constant — this is
+    what makes the fallback threshold in select_backend() proportional to the
+    job, not a hardcoded cutoff.
+
     Returns (backend, estimated_exec_s, pending_jobs) or (None, 0, 0).
     """
+    exec_s = estimate_exec_s(circuit)
     try:
+        # Fetch each backend's status once — b.status() is a network round-trip
+        # to IBM, so calling it twice (operational + pending_jobs) doubled the
+        # queries. Cache the status object and read both fields from it.
+        statuses   = [(b, b.status()) for b in service.backends()]
         candidates = [
-            (b, b.status().pending_jobs)
-            for b in service.backends()
-            if b.status().operational
+            (b, s.pending_jobs)
+            for b, s in statuses
+            if s.operational
         ]
         if not candidates:
             print("[IBM] No operational backend available")
-            return None, ESTIMATED_EXEC_S, 0
+            return None, exec_s, 0
 
         candidates.sort(key=lambda x: x[1])
         best, pending = candidates[0]
@@ -61,11 +96,11 @@ def pick_best_ibm_backend(service):
             marker = " <- selected" if b.name == best.name else ""
             print(f"       {b.name:<30} pending: {p}{marker}")
 
-        return best, ESTIMATED_EXEC_S, pending
+        return best, exec_s, pending
 
     except Exception as e:
         print(f"[IBM] Backend selection error: {e}")
-        return None, ESTIMATED_EXEC_S, 0
+        return None, exec_s, 0
 
 
 def _run_on_qpu(circuit, backend, backend_name, shots, timeout_s=ABSOLUTE_TIMEOUT_S):
@@ -190,9 +225,17 @@ class IBMQPUAdapter(BackendAdapter):
     Receives backend and service from orchestrator — no internal connection logic.
     """
 
-    def __init__(self, backend, service):
+    def __init__(self, backend, service, queue_estimate_s: float = 0.0):
         self._backend = backend
         self._service = service
+        # Estimate computed by pick_best_ibm_backend/select_backend at
+        # selection time (pending_jobs * 60) — stored here so the interface
+        # method below reports the real number the orchestrator acted on,
+        # instead of the placeholder 0.0 every adapter used to return
+        # regardless of provider (queue decisions happen *before* an adapter
+        # is constructed, so this is informational/for logging, not the
+        # value select_backend() itself branches on).
+        self._queue_estimate_s = queue_estimate_s
 
     @property
     def name(self) -> str:
@@ -202,7 +245,7 @@ class IBMQPUAdapter(BackendAdapter):
         return self._backend is not None
 
     def estimated_queue_s(self) -> float:
-        return 0.0
+        return self._queue_estimate_s
 
     def run(self, circuit, shots=1024) -> dict:
         return _run_on_qpu(circuit, self._backend, self.name, shots,

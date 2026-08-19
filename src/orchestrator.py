@@ -25,7 +25,7 @@ import json
 QUEUE_MULTIPLIER = 20  # fallback if queue > multiplier * estimated exec
 
 
-def select_backend(preference="ideal_simulator", strategy="responsive"):
+def select_backend(preference="ideal_simulator", strategy="responsive", circuit=None):
     """
     Returns the appropriate BackendAdapter based on preference and strategy.
 
@@ -41,6 +41,12 @@ def select_backend(preference="ideal_simulator", strategy="responsive"):
                       Best for: research, when QPU fidelity is required.
       "adaptive"    — wait up to ABSOLUTE_TIMEOUT_S, then fallback.
                       Best for: batch jobs, overnight runs, best-effort quality.
+
+    circuit: the circuit about to be submitted (applies only to ibm_qpu).
+      Passed through to pick_best_ibm_backend so the fallback threshold is
+      computed from this specific circuit (see ibm.estimate_exec_s) rather
+      than a fixed constant. Optional — if omitted, a conservative constant
+      is used instead (see ibm.ESTIMATED_EXEC_S).
     """
     if preference == "ideal_simulator":
         return IBMSimulatorAdapter(noisy=False)
@@ -54,7 +60,7 @@ def select_backend(preference="ideal_simulator", strategy="responsive"):
             print("[ORCHESTRATOR] IBM unreachable — falling back to noisy simulator")
             return IBMSimulatorAdapter(noisy=True)
 
-        backend, estimated_exec_s, pending = pick_best_ibm_backend(service)
+        backend, estimated_exec_s, pending = pick_best_ibm_backend(service, circuit=circuit)
 
         if backend is None:
             print("[ORCHESTRATOR] No backend available — falling back to noisy simulator")
@@ -63,7 +69,9 @@ def select_backend(preference="ideal_simulator", strategy="responsive"):
         queue_s   = pending * 60
         threshold = QUEUE_MULTIPLIER * estimated_exec_s
 
+        exec_source = "from circuit" if circuit is not None else "no circuit given, fallback constant"
         print(f"[ORCHESTRATOR] Strategy: {strategy.upper()}")
+        print(f"[ORCHESTRATOR] Estimated exec: {estimated_exec_s}s ({exec_source})")
         print(f"[ORCHESTRATOR] Estimated queue: {queue_s}s, threshold: {threshold}s")
 
         if strategy == "responsive":
@@ -71,23 +79,23 @@ def select_backend(preference="ideal_simulator", strategy="responsive"):
                 print(f"[ORCHESTRATOR] Queue too long — falling back to noisy simulator")
                 return IBMSimulatorAdapter(noisy=True)
             print(f"[ORCHESTRATOR] Queue acceptable — selected: {backend.name}")
-            return IBMQPUAdapter(backend, service)
+            return IBMQPUAdapter(backend, service, queue_estimate_s=queue_s)
 
         elif strategy == "accurate":
             print(f"[ORCHESTRATOR] Accurate mode — will wait for real QPU regardless of queue")
-            return IBMQPUAdapter(backend, service)
+            return IBMQPUAdapter(backend, service, queue_estimate_s=queue_s)
 
         elif strategy == "adaptive":
             if queue_s > threshold:
                 print(f"[ORCHESTRATOR] Queue long ({queue_s}s) — will attempt QPU "
                       f"with {ABSOLUTE_TIMEOUT_S//60}min timeout before fallback")
-            return IBMQPUAdapterAdaptive(backend, service)
+            return IBMQPUAdapterAdaptive(backend, service, queue_estimate_s=queue_s)
 
         else:
             print(f"[ORCHESTRATOR] Unknown strategy '{strategy}' — using responsive")
             if queue_s > threshold:
                 return IBMSimulatorAdapter(noisy=True)
-            return IBMQPUAdapter(backend, service)
+            return IBMQPUAdapter(backend, service, queue_estimate_s=queue_s)
 
     else:
         print(f"[ORCHESTRATOR] Unknown preference — using ideal simulator")
@@ -135,7 +143,18 @@ def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict:
     print(f"Backend: {adapter.name}")
     print(f"Shots:   {shots}")
 
-    result = adapter.run(circuit, shots=shots)
+    try:
+        result = adapter.run(circuit, shots=shots)
+    except RuntimeError as e:
+        # A real QPU job can time out or come back in a non-DONE state
+        # (see backends/ibm.py:_run_on_qpu). 'responsive' and 'accurate'
+        # deliberately do not auto-fallback to a simulator on this path —
+        # that would silently substitute the answer — so instead of letting
+        # the exception abort the whole benchmark run (every other backend
+        # and circuit still queued after this one), skip just this backend
+        # and let the caller continue. See Technical Decisions Log.
+        print(f"[ORCHESTRATOR] {adapter.name} failed: {e} — skipping this backend")
+        return None
 
     # Apply custom fidelity function if provided
     if fidelity_fn is not None:
@@ -155,7 +174,7 @@ def save_log(log, path=None):
     Appends the job result log to a JSON file.
     Each line is a valid JSON object (newline-delimited JSON / NDJSON format).
     """
-    path = path or os.path.join(RESULTS_DIR, "log.json")
+    path = path or os.path.join(RESULTS_DIR, "log.jsonl")
     os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
     with open(path, "a") as f:
         f.write(json.dumps(log) + "\n")
@@ -243,9 +262,9 @@ if __name__ == "__main__":
         b_log2     = run_job(b_adapter2, bell, shots=args.shots)
         save_log(b_log2)
 
-        b_adapter3 = select_backend("ibm_qpu", strategy=args.strategy)
+        b_adapter3 = select_backend("ibm_qpu", strategy=args.strategy, circuit=bell)
         b_log3     = run_job(b_adapter3, bell, shots=args.shots)
-        save_log(b_log3)
+        if b_log3: save_log(b_log3)
 
         b_adapter4 = AWSSimulatorAdapter()
         b_log4     = run_job(b_adapter4, bell, shots=args.shots) if b_adapter4.is_available() else None
@@ -278,10 +297,10 @@ if __name__ == "__main__":
                              fidelity_fn=compute_fidelity_ghz)
         save_log(g_log2)
 
-        g_adapter3 = select_backend("ibm_qpu", strategy=args.strategy)
+        g_adapter3 = select_backend("ibm_qpu", strategy=args.strategy, circuit=ghz)
         g_log3     = run_job(g_adapter3, ghz, shots=args.shots,
                              fidelity_fn=compute_fidelity_ghz)
-        save_log(g_log3)
+        if g_log3: save_log(g_log3)
 
         g_adapter4 = AWSSimulatorAdapter()
         g_log4     = run_job(g_adapter4, ghz, shots=args.shots,
@@ -299,56 +318,67 @@ if __name__ == "__main__":
 
     # ── VQE H₂ benchmark ─────────────────────────────────────────
     if run_vqe:
-        # Imported here, not at module top — vqe_h2.py depends on scipy,
-        # which shouldn't be a hard requirement for running bell/ghz.
+        # Imported here, not at module top, so a broken/missing VQE module
+        # can't break bell/ghz (vqe_h2.py no longer depends on scipy since
+        # the analytical theta scan replaced the stochastic search — see
+        # Technical Decisions Log, 23/07 — but the lazy import is kept as a
+        # general isolation guard).
         try:
-            from circuits.vqe_h2 import create_vqe_h2_circuit, compute_fidelity_vqe, compute_energy_h2
+            from circuits.vqe_h2 import (create_vqe_h2_circuit, compute_fidelity_vqe,
+                                         compute_energy_h2, compute_energy_h2_zdiagonal,
+                                         E_EXACT)
         except ImportError as e:
-            print(f"[VQE] Could not import scipy — skipping VQE benchmark: {e}")
+            print(f"[VQE] Could not import VQE module — skipping VQE benchmark: {e}")
             run_vqe = False
 
     if run_vqe:
         print("\n" + "=" * 50)
-        print("CIRCUIT: VQE H₂ (2 qubits — minimal ansatz)")
+        print("CIRCUIT: VQE H₂ (2 qubits — single-excitation ansatz)")
         print("=" * 50)
 
-        vqe = create_vqe_h2_circuit()
-        print(vqe.draw())
+        # Two measurement circuits share the same state preparation:
+        #   Z basis -> diagonal terms II, Z0, Z1, Z0Z1 (~96.5% of the energy)
+        #   X basis -> the single off-diagonal term X0X1 (the remaining ~3.5%)
+        # Summing both recovers the full ground-state energy (-1.1373 Ha) to
+        # chemical accuracy. The Z-basis run also carries the fidelity metric.
+        vqe_z = create_vqe_h2_circuit(basis="z")
+        vqe_x = create_vqe_h2_circuit(basis="x")
+        print(vqe_z.draw())
 
-        v_adapter1 = select_backend("ideal_simulator")
-        v_log1     = run_job(v_adapter1, vqe, shots=args.shots,
-                             fidelity_fn=compute_fidelity_vqe)
-        v_log1["energy_hartree"] = compute_energy_h2(v_log1["counts"], args.shots)
-        save_log(v_log1)
+        def run_vqe_backend(adapter):
+            """Runs both bases on one backend, returns the Z-basis log with
+            full and Z-diagonal energy attached (or None if unavailable, or
+            if the QPU job itself failed/timed out — see run_job)."""
+            if not adapter.is_available():
+                return None
+            log_z = run_job(adapter, vqe_z, shots=args.shots,
+                            fidelity_fn=compute_fidelity_vqe)
+            if log_z is None:
+                return None
+            try:
+                result_x = adapter.run(vqe_x, shots=args.shots)
+            except RuntimeError as e:
+                print(f"[ORCHESTRATOR] {adapter.name} X-basis run failed: {e} — "
+                      f"skipping this backend (Z-basis result discarded, energy "
+                      f"needs both bases)")
+                return None
+            log_z["energy_hartree"]       = compute_energy_h2(
+                log_z["counts"], result_x["counts"], args.shots)
+            log_z["energy_zdiag_hartree"] = compute_energy_h2_zdiagonal(
+                log_z["counts"], args.shots)
+            print(f"Energy (Z+X):   {log_z['energy_hartree']} Hartree "
+                  f"(Z-diagonal only: {log_z['energy_zdiag_hartree']})")
+            save_log(log_z)
+            return log_z
 
-        v_adapter2 = select_backend("noisy_simulator")
-        v_log2     = run_job(v_adapter2, vqe, shots=args.shots,
-                             fidelity_fn=compute_fidelity_vqe)
-        v_log2["energy_hartree"] = compute_energy_h2(v_log2["counts"], args.shots)
-        save_log(v_log2)
-
-        v_adapter3 = select_backend("ibm_qpu", strategy=args.strategy)
-        v_log3     = run_job(v_adapter3, vqe, shots=args.shots,
-                             fidelity_fn=compute_fidelity_vqe)
-        v_log3["energy_hartree"] = compute_energy_h2(v_log3["counts"], args.shots)
-        save_log(v_log3)
-
-        v_adapter4 = AWSSimulatorAdapter()
-        v_log4     = run_job(v_adapter4, vqe, shots=args.shots,
-                             fidelity_fn=compute_fidelity_vqe) if v_adapter4.is_available() else None
-        if v_log4:
-            v_log4["energy_hartree"] = compute_energy_h2(v_log4["counts"], args.shots)
-            save_log(v_log4)
-
-        v_adapter5 = IonQSimulatorAdapter()
-        v_log5     = run_job(v_adapter5, vqe, shots=args.shots,
-                             fidelity_fn=compute_fidelity_vqe) if v_adapter5.is_available() else None
-        if v_log5:
-            v_log5["energy_hartree"] = compute_energy_h2(v_log5["counts"], args.shots)
-            save_log(v_log5)
+        v_log1 = run_vqe_backend(select_backend("ideal_simulator"))
+        v_log2 = run_vqe_backend(select_backend("noisy_simulator"))
+        v_log3 = run_vqe_backend(select_backend("ibm_qpu", strategy=args.strategy, circuit=vqe_z))
+        v_log4 = run_vqe_backend(AWSSimulatorAdapter())
+        v_log5 = run_vqe_backend(IonQSimulatorAdapter())
 
         plot_backend_comparison(v_log1, v_log2, v_log3, v_log4, v_log5,
-                                title=f"VQE H₂ (2 qubits — Z-basis) — {args.shots} shots",
+                                title=f"VQE H₂ (2 qubits — Z+X basis) — {args.shots} shots",
                                 filename=os.path.join(RESULTS_DIR, "vqe_comparison.png"))
 
     # ── Custom QASM circuit ───────────────────────────────────────
@@ -376,10 +406,10 @@ if __name__ == "__main__":
                              fidelity_fn=generic_fidelity_fn)
         save_log(q_log2)
 
-        q_adapter3 = select_backend("ibm_qpu", strategy=args.strategy)
+        q_adapter3 = select_backend("ibm_qpu", strategy=args.strategy, circuit=custom_circuit)
         q_log3     = run_job(q_adapter3, custom_circuit, shots=args.shots,
                              fidelity_fn=generic_fidelity_fn)
-        save_log(q_log3)
+        if q_log3: save_log(q_log3)
 
         q_log4 = None
         q_adapter4 = AWSSimulatorAdapter()
@@ -423,13 +453,14 @@ if __name__ == "__main__":
                   f"exec: {log['execution_time_s']}s  queue: {log['queue_time_s']}s")
 
     if run_vqe:
-        print("\nVQE H₂ (Z-basis partial energy estimate):")
-        print(f"  Exact ground state:      -1.1372 Hartree (full, requires X/Y basis)")
-        print(f"  Z-basis estimate limit:  -0.7432 Hartree (this benchmark)")
-        print(f"  Missing XX+YY terms:     ~0.3940 Hartree")
+        print("\nVQE H₂ (full ground-state energy — Z + X basis):")
+        print(f"  Exact ground state:      {E_EXACT} Hartree (full CI, STO-3G)")
+        print(f"  Z-diagonal terms alone:  ~-1.0973 Hartree (~96.5% of the energy)")
+        print(f"  X0X1 term adds:          ~-0.0400 Hartree (~3.5%, needs X basis)")
         for log in [l for l in [v_log1, v_log2, v_log3, v_log4, v_log5] if l]:
             print(f"  {log['backend']:<35} "
                   f"E = {log['energy_hartree']} Hartree  "
+                  f"(Z-only: {log.get('energy_zdiag_hartree', 'n/a')})  "
                   f"fidelity: {log['fidelity']*100:.2f}%")
 
     if custom_circuit is not None:
