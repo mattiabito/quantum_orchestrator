@@ -123,7 +123,7 @@ more optimistic noise model. See `results/vqe_energy_convergence.png`.
 
 **Key finding — queue vs execution:** real QPU execution takes 2 seconds across all circuits. Queue time ranges from 10 seconds to 61 minutes on the same machine. Queue/execution ratio: up to 1822:1. This is the empirical demonstration of what the QCaaS literature describes only qualitatively.
 
-**Key finding — backend selection affects fidelity, not just queue time:** on VQE H₂, real-QPU fidelity varies from 95.36% (ibm_fez) to 98.60% (ibm_marrakesh) on the identical circuit — replicated measurements (n=5) show this gap is driven by which machine gets selected, not random noise. Autonomous backend selection measurably affects result quality, not only wait time.
+**Key finding — backend selection affects fidelity, not just queue time:** on GHZ, five real-QPU runs from one session split 4-to-1 across machines — `ibm_fez` (n=4): 94.04%, 95.31%, 93.26%, 93.26% (mean 93.97%); `ibm_marrakesh` (n=1): 97.27%. The single `ibm_marrakesh` run isn't a distribution, but it sits clearly above the whole `ibm_fez` cluster, consistent with the same machine's higher fidelity on Bell (97.95–98.93% across its own separate replicas, see above). Autonomous backend selection measurably affects result quality, not only wait time — pinning the gap down to a precise number would need more `ibm_marrakesh` replicas than this session produced.
 
 **Caveat — IonQ is a calibrated noise-model simulator, not physical hardware.** The `ionq_simulator` numbers above come from a Braket density-matrix simulator with vendor-published error rates, not a measurement on physical trapped-ion hardware. It is not directly equivalent to the IBM QPU rows, which are real hardware measurements. Replicated data (n=5-10) shows IonQ consistently at or above real IBM QPU fidelity on GHZ, but this reflects the noise model's calibration, not a physical hardware comparison — treat it as a reference point, not a "IonQ beats IBM" claim.
 
@@ -160,8 +160,10 @@ IBM_INSTANCE=your_instance_name
 | `adaptive` | Wait up to 30 minutes, then fallback to noisy simulator | Batch jobs, overnight runs |
 
 ```python
-# Change strategy based on your use case
-adapter = select_backend("ibm_qpu", strategy="accurate")
+# Change strategy based on your use case. Pass the circuit so the fallback
+# threshold is computed from it instead of falling back to a fixed constant
+# (see backends/ibm.py: estimate_exec_s).
+adapter = select_backend("ibm_qpu", strategy="accurate", circuit=my_circuit)
 ```
 
 ---
@@ -171,16 +173,23 @@ adapter = select_backend("ibm_qpu", strategy="accurate")
 The orchestrator uses a plugin architecture based on an abstract `BackendAdapter` class. Every provider implements the same interface — the orchestrator never knows which provider it is talking to.
 
 ```
-backends/
-  base.py         — abstract BackendAdapter (is_available, estimated_queue_s, run, name)
-  ibm.py          — IBM superconducting: IBMSimulatorAdapter, IBMQPUAdapter, IBMQPUAdapterAdaptive
-  aws.py          — AWS Braket: AWSSimulatorAdapter
-  ionq.py         — IonQ trapped-ion: IonQSimulatorAdapter (via Braket density matrix)
-  braket_utils.py — Qiskit-to-Braket circuit conversion, shared by aws.py and ionq.py
-circuits/
-  bell.py    — Bell state (2 qubits) — base validation
-  ghz.py     — GHZ state (3 qubits) — medium complexity
-  vqe_h2.py  — VQE H₂ molecule — real use case
+src/
+  orchestrator.py            — CLI entry point: backend selection, strategies, logging
+  graph.py                   — comparison plots
+  shots_efficiency.py        — fidelity vs shot-count benchmark
+  vqe_energy_convergence.py  — VQE energy vs shot-count benchmark
+  paths.py                   — output paths anchored to the source file, not the cwd
+  backends/
+    base.py         — abstract BackendAdapter (is_available, estimated_queue_s, run, name)
+    ibm.py           — IBM superconducting: IBMSimulatorAdapter, IBMQPUAdapter, IBMQPUAdapterAdaptive
+    aws.py           — AWS Braket: AWSSimulatorAdapter
+    ionq.py          — IonQ trapped-ion: IonQSimulatorAdapter (via Braket density matrix)
+    braket_utils.py  — Qiskit-to-Braket circuit conversion, shared by aws.py and ionq.py
+  circuits/
+    bell.py    — Bell state (2 qubits) — base validation
+    ghz.py     — GHZ state (3 qubits) — medium complexity
+    vqe_h2.py  — VQE H₂ molecule — real use case
+tests/  — regression suite (fidelity metrics, VQE physics, Qiskit↔Braket round-trip)
 ```
 
 **Adding a new provider** is straightforward — implement `BackendAdapter` and register it in `orchestrator.py`. No other changes needed.
