@@ -1,0 +1,98 @@
+[
+  {
+    "circuit": "bell",
+    "shots": 128,
+    "fidelity_mean": 0.9586,
+    "fidelity_std": 0.0232,
+    "execution_time_s": 0.0038,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "bell",
+    "shots": 256,
+    "fidelity_mean": 0.9633,
+    "fidelity_std": 0.0081,
+    "execution_time_s": 0.0029,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "bell",
+    "shots": 512,
+    "fidelity_mean": 0.959,
+    "fidelity_std": 0.0062,
+    "execution_time_s": 0.0031,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "bell",
+    "shots": 1024,
+    "fidelity_mean": 0.954,
+    "fidelity_std": 0.0069,
+    "execution_time_s": 0.0036,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "bell",
+    "shots": 2048,
+    "fidelity_mean": 0.9562,
+    "fidelity_std": 0.004,
+    "execution_time_s": 0.0049,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "bell",
+    "shots": 4096,
+    "fidelity_mean": 0.9558,
+    "fidelity_std": 0.0026,
+    "execution_time_s": 0.0071,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "ghz",
+    "shots": 128,
+    "fidelity_mean": 0.9383,
+    "fidelity_std": 0.0251,
+    "execution_time_s": 0.0026,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "ghz",
+    "shots": 256,
+    "fidelity_mean": 0.9391,
+    "fidelity_std": 0.0134,
+    "execution_time_s": 0.0026,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "ghz",
+    "shots": 512,
+    "fidelity_mean": 0.9274,
+    "fidelity_std": 0.0056,
+    "execution_time_s": 0.003,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "ghz",
+    "shots": 1024,
+    "fidelity_mean": 0.9352,
+    "fidelity_std": 0.0071,
+    "execution_time_s": 0.0042,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "ghz",
+    "shots": 2048,
+    "fidelity_mean": 0.9285,
+    "fidelity_std": 0.0047,
+    "execution_time_s": 0.0051,
+    "n_replicas": 10
+  },
+  {
+    "circuit": "ghz",
+    "shots": 4096,
+    "fidelity_mean": 0.9301,
+    "fidelity_std": 0.0033,
+    "execution_time_s": 0.008,
+    "n_replicas": 10
+  }
+]

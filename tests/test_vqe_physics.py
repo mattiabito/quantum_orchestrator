@@ -54,7 +54,12 @@ class TestHamiltonian(unittest.TestCase):
         self.assertAlmostEqual(ground, E_EXACT, delta=CHEM_ACC)
 
     def test_single_off_diagonal_term(self):
-        """Reduced 2-qubit H2 has one off-diagonal term (X0X1), not XX + YY."""
+        """The parity/Z2-reduced 2-qubit H2 has one off-diagonal term (X0X1).
+
+        Other reductions of the same molecule do carry a symmetric XX + YY
+        pair (O'Malley et al. 2016, Eq. 1, uses one); this test pins down which
+        form the module implements, so a future edit cannot quietly mix the two.
+        """
         self.assertIn("XX", HAMILTONIAN_COEFFS)
         self.assertNotIn("YY", HAMILTONIAN_COEFFS)
 

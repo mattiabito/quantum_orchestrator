@@ -1,0 +1,233 @@
+[
+  {
+    "backend": "ideal_simulator",
+    "shots": 128,
+    "energy_mean": -1.1323,
+    "energy_std": 0.0173,
+    "fidelity_mean": 1.0,
+    "fidelity_std": 0.0,
+    "frac_within_chem_acc": 0.2,
+    "avg_exec_s": 0.002,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ideal_simulator",
+    "shots": 256,
+    "energy_mean": -1.1425,
+    "energy_std": 0.0132,
+    "fidelity_mean": 1.0,
+    "fidelity_std": 0.0,
+    "frac_within_chem_acc": 0.3,
+    "avg_exec_s": 0.0016,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ideal_simulator",
+    "shots": 512,
+    "energy_mean": -1.1352,
+    "energy_std": 0.0104,
+    "fidelity_mean": 1.0,
+    "fidelity_std": 0.0,
+    "frac_within_chem_acc": 0.3,
+    "avg_exec_s": 0.0018,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ideal_simulator",
+    "shots": 1024,
+    "energy_mean": -1.1397,
+    "energy_std": 0.0033,
+    "fidelity_mean": 1.0,
+    "fidelity_std": 0.0,
+    "frac_within_chem_acc": 0.5,
+    "avg_exec_s": 0.0024,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ideal_simulator",
+    "shots": 2048,
+    "energy_mean": -1.1356,
+    "energy_std": 0.0046,
+    "fidelity_mean": 1.0,
+    "fidelity_std": 0.0,
+    "frac_within_chem_acc": 0.4,
+    "avg_exec_s": 0.0036,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ideal_simulator",
+    "shots": 4096,
+    "energy_mean": -1.1396,
+    "energy_std": 0.0037,
+    "fidelity_mean": 1.0,
+    "fidelity_std": 0.0,
+    "frac_within_chem_acc": 0.3,
+    "avg_exec_s": 0.0054,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ideal_simulator",
+    "shots": 8192,
+    "energy_mean": -1.1367,
+    "energy_std": 0.0031,
+    "fidelity_mean": 1.0,
+    "fidelity_std": 0.0,
+    "frac_within_chem_acc": 0.5,
+    "avg_exec_s": 0.01,
+    "n_replicas": 10
+  },
+  {
+    "backend": "noisy_simulator",
+    "shots": 128,
+    "energy_mean": -1.052,
+    "energy_std": 0.0318,
+    "fidelity_mean": 0.9453,
+    "fidelity_std": 0.025,
+    "frac_within_chem_acc": 0.1,
+    "avg_exec_s": 0.0054,
+    "n_replicas": 10
+  },
+  {
+    "backend": "noisy_simulator",
+    "shots": 256,
+    "energy_mean": -1.0837,
+    "energy_std": 0.0169,
+    "fidelity_mean": 0.9472,
+    "fidelity_std": 0.0086,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0053,
+    "n_replicas": 10
+  },
+  {
+    "backend": "noisy_simulator",
+    "shots": 512,
+    "energy_mean": -1.09,
+    "energy_std": 0.0115,
+    "fidelity_mean": 0.9553,
+    "fidelity_std": 0.0057,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0059,
+    "n_replicas": 10
+  },
+  {
+    "backend": "noisy_simulator",
+    "shots": 1024,
+    "energy_mean": -1.0888,
+    "energy_std": 0.0079,
+    "fidelity_mean": 0.9512,
+    "fidelity_std": 0.0061,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0076,
+    "n_replicas": 10
+  },
+  {
+    "backend": "noisy_simulator",
+    "shots": 2048,
+    "energy_mean": -1.0865,
+    "energy_std": 0.0073,
+    "fidelity_mean": 0.9499,
+    "fidelity_std": 0.0055,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0096,
+    "n_replicas": 10
+  },
+  {
+    "backend": "noisy_simulator",
+    "shots": 4096,
+    "energy_mean": -1.0881,
+    "energy_std": 0.0061,
+    "fidelity_mean": 0.951,
+    "fidelity_std": 0.0033,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0152,
+    "n_replicas": 10
+  },
+  {
+    "backend": "noisy_simulator",
+    "shots": 8192,
+    "energy_mean": -1.0885,
+    "energy_std": 0.0039,
+    "fidelity_mean": 0.9517,
+    "fidelity_std": 0.0022,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0248,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ionq_simulator",
+    "shots": 128,
+    "energy_mean": -1.1102,
+    "energy_std": 0.0251,
+    "fidelity_mean": 0.9899,
+    "fidelity_std": 0.0078,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0636,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ionq_simulator",
+    "shots": 256,
+    "energy_mean": -1.1266,
+    "energy_std": 0.0104,
+    "fidelity_mean": 0.9887,
+    "fidelity_std": 0.0071,
+    "frac_within_chem_acc": 0.1,
+    "avg_exec_s": 0.0302,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ionq_simulator",
+    "shots": 512,
+    "energy_mean": -1.1311,
+    "energy_std": 0.0119,
+    "fidelity_mean": 0.9844,
+    "fidelity_std": 0.0047,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0329,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ionq_simulator",
+    "shots": 1024,
+    "energy_mean": -1.1255,
+    "energy_std": 0.0129,
+    "fidelity_mean": 0.9871,
+    "fidelity_std": 0.0051,
+    "frac_within_chem_acc": 0.2,
+    "avg_exec_s": 0.0366,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ionq_simulator",
+    "shots": 2048,
+    "energy_mean": -1.1273,
+    "energy_std": 0.0067,
+    "fidelity_mean": 0.9875,
+    "fidelity_std": 0.0026,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0396,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ionq_simulator",
+    "shots": 4096,
+    "energy_mean": -1.1239,
+    "energy_std": 0.0032,
+    "fidelity_mean": 0.9867,
+    "fidelity_std": 0.0014,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.0653,
+    "n_replicas": 10
+  },
+  {
+    "backend": "ionq_simulator",
+    "shots": 8192,
+    "energy_mean": -1.124,
+    "energy_std": 0.0033,
+    "fidelity_mean": 0.9864,
+    "fidelity_std": 0.0011,
+    "frac_within_chem_acc": 0.0,
+    "avg_exec_s": 0.1221,
+    "n_replicas": 10
+  }
+]

@@ -107,9 +107,19 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
     parts.append(f"Ideal→Noisy: -{d_noisy:.2f}%")
 
     if log3:
-        d_qpu  = (log1['fidelity'] - log3['fidelity']) * 100
-        q_time = log3.get('queue_time_s', 0)
-        parts.append(f"Ideal→QPU: -{d_qpu:.2f}%  |  QPU queue: {q_time}s")
+        # Slot 3 is the "IBM QPU" position, but it does not always hold a QPU:
+        # when IBM is unreachable or the queue exceeds the threshold,
+        # select_backend() returns a noisy simulator instead. Label the footer
+        # from the backend that actually ran, not from the slot — a fallback
+        # run used to be reported as "Ideal→QPU", which is simply false.
+        d_qpu    = (log1['fidelity'] - log3['fidelity']) * 100
+        q_time   = log3.get('queue_time_s', 0)
+        is_qpu   = log3['backend'].startswith('ibm_qpu')
+        label3   = "QPU" if is_qpu else f"slot 3 ({log3['backend'].replace('_', ' ')})"
+        entry    = f"Ideal→{label3}: -{d_qpu:.2f}%"
+        if is_qpu:
+            entry += f"  |  QPU queue: {q_time}s"
+        parts.append(entry)
 
     if log4:
         d_aws = (log1['fidelity'] - log4['fidelity']) * 100
@@ -138,33 +148,35 @@ def plot_backend_comparison(log1, log2, log3=None, log4=None, log5=None,
 
 
 if __name__ == "__main__":
-    # Sample data — Bell state, replace with actual run results
-    log_ideal = {
-        "backend": "ideal_simulator", "shots": 1024,
-        "counts": {"00": 494, "11": 530},
-        "fidelity": 1.0, "queue_time_s": 0, "execution_time_s": 0.022
+    # Smoke test for the plotting code only — NOT measured data.
+    #
+    # The values below are obviously synthetic (round numbers, invented backend
+    # names) and the output goes to a throwaway filename. Both are deliberate:
+    # an earlier version of this block used realistic-looking numbers and real
+    # backend names, and wrote to results/bell_comparison.png — so running this
+    # file silently replaced a measured figure with fabricated data. In a repo
+    # whose whole claim is "these numbers were measured", that is a hazard, not
+    # a convenience.
+    #
+    # To regenerate a real comparison figure, run the orchestrator:
+    #     python src/orchestrator.py --circuit bell
+    demo_a = {
+        "backend": "demo_backend_a", "shots": 1000,
+        "counts": {"00": 500, "11": 500},
+        "fidelity": 1.0, "queue_time_s": 0, "execution_time_s": 0.1
     }
-    log_noisy = {
-        "backend": "noisy_simulator", "shots": 1024,
-        "counts": {"00": 508, "11": 485, "01": 16, "10": 15},
-        "fidelity": 0.9697, "queue_time_s": 0, "execution_time_s": 0.010
+    demo_b = {
+        "backend": "demo_backend_b", "shots": 1000,
+        "counts": {"00": 450, "11": 450, "01": 50, "10": 50},
+        "fidelity": 0.9, "queue_time_s": 0, "execution_time_s": 0.2
     }
-    log_qpu = {
-        "backend": "ibm_qpu_ibm_marrakesh", "shots": 1024,
-        "counts": {"00": 511, "11": 477, "01": 20, "10": 16},
-        "fidelity": 0.9648, "queue_time_s": 11.4, "execution_time_s": 2.0
-    }
-    log_aws = {
-        "backend": "aws_local_simulator", "shots": 1024,
-        "counts": {"00": 512, "11": 512},
-        "fidelity": 1.0, "queue_time_s": 0, "execution_time_s": 0.033
-    }
-    log_ionq = {
-        "backend": "ionq_simulator", "shots": 1024,
-        "counts": {"00": 509, "11": 496, "01": 9, "10": 10},
-        "fidelity": 0.9814, "queue_time_s": 0, "execution_time_s": 0.5
+    demo_c = {
+        "backend": "demo_backend_c", "shots": 1000,
+        "counts": {"00": 400, "11": 400, "01": 100, "10": 100},
+        "fidelity": 0.8, "queue_time_s": 30, "execution_time_s": 0.3
     }
 
-    plot_backend_comparison(log_ideal, log_noisy, log_qpu, log_aws, log_ionq,
-                            title="Bell State (2 qubits)",
-                            filename=os.path.join(RESULTS_DIR, "bell_comparison.png"))
+    plot_backend_comparison(demo_a, demo_b, demo_c,
+                            title="SYNTHETIC DEMO DATA — plotting smoke test",
+                            filename=os.path.join(RESULTS_DIR,
+                                                  "_graph_smoke_test.png"))

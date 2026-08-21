@@ -8,7 +8,7 @@ import sys
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-from circuits.bell import create_bell_circuit, compute_fidelity
+from circuits.bell import create_bell_circuit
 from circuits.ghz  import create_ghz_circuit, compute_fidelity_ghz
 from backends.ibm import (IBMSimulatorAdapter, IBMQPUAdapter,
                            IBMQPUAdapterAdaptive, connect_ibm,
@@ -134,9 +134,11 @@ def _make_generic_fidelity_fn(reference_counts: dict, reference_shots: int):
     )
 
 
-def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict:
+def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict | None:
     """
-    Runs the circuit on the given adapter and returns the result log.
+    Runs the circuit on the given adapter and returns the result log, or None
+    if the backend failed and was skipped (see the RuntimeError branch below).
+
     fidelity_fn: optional custom fidelity function — defaults to Bell state fidelity.
     """
     print(f"\n--- Running job ---")
@@ -152,7 +154,7 @@ def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict:
         # that would silently substitute the answer — so instead of letting
         # the exception abort the whole benchmark run (every other backend
         # and circuit still queued after this one), skip just this backend
-        # and let the caller continue. See Technical Decisions Log.
+        # and let the caller continue.
         print(f"[ORCHESTRATOR] {adapter.name} failed: {e} — skipping this backend")
         return None
 
@@ -160,12 +162,20 @@ def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict:
     if fidelity_fn is not None:
         result["fidelity"] = fidelity_fn(result["counts"], shots)
 
-    result["timestamp"] = datetime.datetime.now().isoformat()
+    # Record the queue estimate the scheduler acted on next to the queue time
+    # actually observed. On the IBM path the fallback decision is taken one
+    # level up, in select_backend(), before this adapter existed; the adapter
+    # carries that number forward so every log line can be checked against
+    # what really happened. That comparison is the whole point of Section 4:
+    # the estimate and the outcome are not the same quantity.
+    result["queue_estimate_s"] = adapter.estimated_queue_s()
+    result["timestamp"]        = datetime.datetime.now().isoformat()
 
     print(f"Counts:         {result['counts']}")
     print(f"Fidelity:       {result['fidelity'] * 100:.2f}%")
     print(f"Execution time: {result['execution_time_s']}s")
-    print(f"Queue time:     {result['queue_time_s']}s")
+    print(f"Queue time:     {result['queue_time_s']}s "
+          f"(estimated: {result['queue_estimate_s']}s)")
     return result
 
 
@@ -214,6 +224,11 @@ if __name__ == "__main__":
              "Overrides --circuit if provided."
     )
     args = parser.parse_args()
+
+    # argparse type=int accepts 0 and negatives; both reach Aer and fail deep
+    # inside Qiskit with a traceback that says nothing useful to a CLI user.
+    if args.shots < 1:
+        parser.error(f"--shots must be a positive integer, got {args.shots}")
 
     print(f"=== Quantum Orchestrator v1.0 ===")
     print(f"Circuit: {args.circuit}  |  Strategy: {args.strategy}  |  Shots: {args.shots}\n")
@@ -320,9 +335,8 @@ if __name__ == "__main__":
     if run_vqe:
         # Imported here, not at module top, so a broken/missing VQE module
         # can't break bell/ghz (vqe_h2.py no longer depends on scipy since
-        # the analytical theta scan replaced the stochastic search — see
-        # Technical Decisions Log, 23/07 — but the lazy import is kept as a
-        # general isolation guard).
+        # the analytical theta scan replaced the stochastic search, but the
+        # lazy import is kept as a general isolation guard).
         try:
             from circuits.vqe_h2 import (create_vqe_h2_circuit, compute_fidelity_vqe,
                                          compute_energy_h2, compute_energy_h2_zdiagonal,

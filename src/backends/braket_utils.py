@@ -13,8 +13,9 @@ def qiskit_to_braket(qiskit_circuit):
     target qubit has no ordering ambiguity. Unrecognized multi-qubit gates
     raise UnsupportedGateError instead of silently dropping them, since a
     wrong qubit-ordering guess there would silently corrupt the circuit
-    (see Technical Decisions Log, 22/07 — this used to skip and stay
-    quiet about it, which is worse).
+    (this used to skip such gates and stay quiet about it, which meant the
+    circuit executed on Braket was not the circuit the user submitted, while
+    the fidelity was reported as if the comparison were valid).
 
     Measurements must be the identity map (every qubit i into classical bit i)
     or absent; a partial or remapped measurement raises UnsupportedGateError,
@@ -103,7 +104,7 @@ def qiskit_to_braket(qiskit_circuit):
     # classical register (e.g. `measure q[1] -> c[0];`) would misalign the count
     # bitstring against the Qiskit reference. Rather than silently produce wrong
     # fidelity, reject it — consistent with the fail-loud policy for unsupported
-    # gates (see Technical Decisions Log, 22/07). Circuits with no measurement,
+    # gates above. Circuits with no measurement,
     # or that measure every qubit i into classical bit i, pass through.
     if measurements:
         n        = qiskit_circuit.num_qubits

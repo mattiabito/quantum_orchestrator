@@ -16,25 +16,30 @@ ESTIMATED_EXEC_S   = 10    # fallback estimate (seconds) — used only if no cir
 
 # Rough proportional model of real QPU execution time, calibrated against the
 # empirical finding that execution on real IBM hardware is stable at ~2s for
-# every circuit measured so far (Technical Decisions Log — queue-vs-execution).
-# BASE_QPU_LATENCY_S covers fixed job submission/retrieval overhead; PER_GATE_S
-# is a conservative per-gate contribution once transpiled. This is intentionally
-# coarse (documented as a limitation): it makes the threshold a genuine function
-# of the submitted circuit instead of a fixed constant, but the two constants
-# below are not empirically fitted per backend.
+# every circuit measured so far (see the queue-vs-execution numbers in the README).
+# BASE_QPU_LATENCY_S covers fixed job submission/retrieval overhead;
+# PER_DEPTH_LAYER_S is a conservative contribution per layer of circuit depth.
+# Note this scales with depth, not with gate count, and is computed on the
+# circuit as submitted, before transpilation — a transpiled circuit on real
+# hardware is deeper than this. That is deliberate: the point is to make the
+# fallback threshold a genuine function of the submitted circuit instead of a
+# fixed constant, not to predict hardware timing. Both constants are chosen,
+# not fitted per backend (documented as a limitation).
 BASE_QPU_LATENCY_S = 2.0
-PER_GATE_S         = 0.05
+PER_DEPTH_LAYER_S  = 0.05
 
 
 def estimate_exec_s(circuit=None) -> float:
     """
-    Estimates real QPU execution time in seconds for the given circuit.
+    Estimates real QPU execution time in seconds for the given circuit, as
+    a base latency plus a per-depth-layer term.
+
     Falls back to the conservative ESTIMATED_EXEC_S constant if no circuit
     is provided (e.g. a caller that hasn't wired the circuit through yet).
     """
     if circuit is None:
         return ESTIMATED_EXEC_S
-    return round(BASE_QPU_LATENCY_S + circuit.depth() * PER_GATE_S, 2)
+    return round(BASE_QPU_LATENCY_S + circuit.depth() * PER_DEPTH_LAYER_S, 2)
 
 
 # ─────────────────────────────────────────
@@ -71,7 +76,8 @@ def pick_best_ibm_backend(service, circuit=None):
     what makes the fallback threshold in select_backend() proportional to the
     job, not a hardcoded cutoff.
 
-    Returns (backend, estimated_exec_s, pending_jobs) or (None, 0, 0).
+    Returns (backend, estimated_exec_s, pending_jobs), or
+    (None, estimated_exec_s, 0) if no operational backend could be selected.
     """
     exec_s = estimate_exec_s(circuit)
     try:
@@ -143,13 +149,27 @@ def _run_on_qpu(circuit, backend, backend_name, shots, timeout_s=ABSOLUTE_TIMEOU
     register   = list(pub_result.data)[0]
     counts     = dict(getattr(pub_result.data, register).get_counts())
 
+    # The execution time is the scientific payload of this project — the
+    # denominator of every queue-to-execution ratio reported. If IBM does not
+    # hand it back, refuse to invent one: a placeholder here would enter the
+    # log looking exactly like a measurement, and would also inflate the queue
+    # time, since queue is computed as (elapsed - execution). run_job() catches
+    # RuntimeError and skips just this backend, so the benchmark still finishes.
     try:
-        metrics    = job.metrics()
-        exec_time  = round(metrics.get("usage", {}).get("seconds", 10), 1)
-        queue_time = round((time.time() - t_submit) - exec_time, 1)
-    except Exception:
-        exec_time  = 10.0
-        queue_time = round((time.time() - t_submit) - exec_time, 1)
+        usage = job.metrics().get("usage", {})
+    except Exception as e:
+        raise RuntimeError(
+            f"could not read metrics for job {job.job_id()}: {e} — "
+            f"refusing to log a fabricated execution time"
+        )
+    if "seconds" not in usage:
+        raise RuntimeError(
+            f"IBM returned no usage.seconds for job {job.job_id()} — "
+            f"refusing to log a fabricated execution time"
+        )
+
+    exec_time  = round(usage["seconds"], 1)
+    queue_time = round((time.time() - t_submit) - exec_time, 1)
 
     return {
         "backend":          backend_name,

@@ -10,9 +10,6 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Results and logs (generated automatically)
-results/
-
 # VS Code settings
 .vscode/
 
@@ -20,5 +17,23 @@ results/
 .DS_Store
 Thumbs.db
 
+# ── results/ is tracked ────────────────────────────────────────────────
+# The figures, the NDJSON run log and the benchmark JSON files are the
+# evidence behind every number in the README, so they belong in the repo.
+# See results/README.md for what each file is and when it was measured.
+# Only the plotting smoke-test output is excluded — it is synthetic.
+results/_graph_smoke_test.png
+
+# ── Private working documents — never public ───────────────────────────
+# Written for me while building the project, not for a reader of the repo.
 Quantum_Orchestrator_Guida_Progetto.md
+Technical_Decisions_Log.md
 comandi.txt
+
+# Article draft — published on dev.to/Medium, not repo content
+ARTICLE.md
+ARTICLE.html
+
+# Review reports and scratch
+REVIEW_*.md
+_to_delete/

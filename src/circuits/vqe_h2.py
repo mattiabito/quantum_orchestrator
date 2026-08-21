@@ -14,10 +14,17 @@ Qubit Hamiltonian (parity mapping + 2-qubit reduction):
       + a_XX  * X0 X1
 
 Note this reduced form has a *single* off-diagonal term (X0 X1), not the
-symmetric XX + YY pair. Coefficients from the canonical H2 result of
-O'Malley et al., Phys. Rev. X 6, 031007 (2016) (also reproduced in the
-Qiskit textbook "Simulating Molecules using VQE"). The electronic
-coefficients give an electronic ground energy of -1.8573 Hartree; the
+symmetric XX + YY pair. That is a property of *this* reduction, not of the
+2-qubit H2 Hamiltonian in general: the coefficients below are the standard
+parity-mapping + Z2 two-qubit reduction at R = 0.735 A, as reproduced in the
+Qiskit textbook chapter "Simulating Molecules using VQE". O'Malley et al.,
+Phys. Rev. X 6, 031007 (2016) is the canonical hardware-VQE reference for
+this molecule, but publishes a Bravyi-Kitaev reduction whose Eq. (1) carries
+both Y0Y1 and X0X1 — do not cite it as the source of the single-XX form.
+Either way the coefficients are not taken on trust: the ground eigenvalue is
+checked against the known exact energy by a test (see tests/test_vqe_physics.py),
+which is what caught the previous, mis-transcribed set.
+The electronic coefficients give an electronic ground energy of -1.8573 Hartree; the
 constant nuclear-repulsion term at R = 0.735 A (E_nuc = 1/R = +0.7199
 Hartree in atomic units) is folded into a_II so that diagonalizing H
 yields the total ground-state energy -1.1373 Hartree directly
@@ -50,10 +57,11 @@ BOND_LENGTH_ANGSTROM = 0.735
 _BOHR_PER_ANGSTROM   = 1.0 / 0.52917721
 NUCLEAR_REPULSION    = 1.0 / (BOND_LENGTH_ANGSTROM * _BOHR_PER_ANGSTROM)  # +0.7199 Ha
 
-# 2-qubit reduced H2 Hamiltonian coefficients.
-# Electronic part: O'Malley et al., Phys. Rev. X 6, 031007 (2016), R = 0.735 A.
-# The nuclear-repulsion constant is folded into the identity term so that
-# the eigenvalues of H are already total energies (electronic + nuclear).
+# 2-qubit reduced H2 Hamiltonian coefficients (parity mapping + Z2 reduction,
+# H2/STO-3G at R = 0.735 A). Electronic part only; the nuclear-repulsion
+# constant is folded into the identity term below so that the eigenvalues of H
+# are already total energies (electronic + nuclear). See the module docstring
+# on why this is not the O'Malley et al. coefficient set.
 _A_II_ELECTRONIC = -1.05237
 HAMILTONIAN_COEFFS = {
     "II": _A_II_ELECTRONIC + NUCLEAR_REPULSION,  # -0.33240 (electronic + nuclear)
@@ -68,8 +76,9 @@ E_EXACT = -1.1372  # Hartree — exact H2 ground-state energy (full CI, STO-3G)
 
 # ── Reference statevector simulation (numpy only) ─────────────────────
 # Used to find the optimal angle analytically and deterministically,
-# without Aer or scipy (both heavy/fragile on Windows — see Technical
-# Decisions Log). Qubit ordering follows Qiskit's little-endian
+# without Aer or scipy (both heavy and fragile on Windows: scipy's native FFT
+# backend was blocked outright by Windows Application Control on the machine
+# this was developed on). Qubit ordering follows Qiskit's little-endian
 # convention: basis index i encodes qubit 0 in the least-significant bit.
 
 _I = np.eye(2, dtype=complex)
@@ -132,8 +141,9 @@ def _get_optimal_theta() -> float:
     Finds the optimal ansatz angle by scanning the analytical energy.
 
     Deterministic and instant (pure numpy, no Aer/scipy). Replaces the
-    previous approach that ran 100 stochastic 8192-shot Aer jobs at import
-    time (see Technical Decisions Log).
+    previous approach, which ran 100 stochastic 8192-shot Aer jobs at import
+    time — slow, non-deterministic, and a heavy dependency to pull in just to
+    pick one angle.
     """
     thetas   = np.linspace(-np.pi, np.pi, 4001)
     energies = [_energy_analytical(t) for t in thetas]

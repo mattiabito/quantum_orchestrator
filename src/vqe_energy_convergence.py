@@ -17,7 +17,6 @@ exactly — that is the point this benchmark makes quantitatively.
 from circuits.vqe_h2 import (create_vqe_h2_circuit, compute_energy_h2,
                              compute_fidelity_vqe, E_EXACT)
 from backends.ibm import IBMSimulatorAdapter
-from backends.aws import AWSSimulatorAdapter
 from backends.ionq import IonQSimulatorAdapter
 from paths import RESULTS_DIR
 import matplotlib.pyplot as plt

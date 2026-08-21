@@ -50,8 +50,7 @@ class IonQSimulatorAdapter(BackendAdapter):
         # Apply the IonQ noise profile INTERLEAVED with the gates, not appended
         # at the end. apply_gate_noise inserts each channel right after every
         # matching gate in the instruction stream, which fixes two problems of
-        # the previous end-of-circuit approach (see Technical Decisions Log 23/07,
-        # review #3):
+        # the previous end-of-circuit approach:
         #   (a) single-qubit depolarizing is now applied once per 1q GATE, not
         #       once per qubit — so noise scales with circuit depth (a depth-100
         #       circuit no longer receives the same 1q noise as a depth-1 one);
@@ -77,7 +76,7 @@ class IonQSimulatorAdapter(BackendAdapter):
 
         # ccx (Toffoli, 3 qubits) still has no two-qubit noise model — a 3-qubit
         # gate has no direct two_qubit_depolarizing equivalent, and inventing one
-        # would be an unvalidated approximation (see Technical Decisions Log 22/07).
+        # would be an unvalidated approximation.
         # Generic single-qubit gates that route to a Braket Unitary (u/u1/u2/u3
         # and custom gates via braket_utils' fallback) are likewise not covered
         # by the named-gate list above — a known, documented gap for exotic
