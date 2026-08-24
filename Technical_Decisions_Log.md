@@ -457,7 +457,7 @@ of the final report, which depends on how complete this log is.
 
 > **⚠️ ENTRY RETRACTED (23 July 2026).** The conclusion below ("the Z basis
 > captures only ~65% of the energy, the XX+YY terms worth ~0.394 Hartree are
-> missing") is a **misdiagnosis**, discovered by the supervisor's review. The
+> missing") is a **misdiagnosis**, discovered by the external review. The
 > plateau at -0.7432 Hartree was not a measurement limit but the exact minimum
 > reachable by an ansatz confined to the wrong symmetry sector, on a Hamiltonian
 > with wrong coefficients. With the correct Hamiltonian (O'Malley 2016) and a
@@ -1127,10 +1127,10 @@ project, not just a footnote.
 
 ---
 
-## 23 July 2026 — SUPERVISOR'S REVIEW: VQE H₂ physics bug — wrong Hamiltonian + ansatz in the wrong sector, both corrected
+## 23 July 2026 — EXTERNAL REVIEW: VQE H₂ physics bug — wrong Hamiltonian + ansatz in the wrong sector, both corrected
 
 **What we observed:**
-The supervisor's code review (commit `8d00f05`) raised that the physical claims of
+The external code review (commit `8d00f05`) raised that the physical claims of
 the VQE benchmark did not match the Hamiltonian actually coded. Independent
 verification with `numpy.linalg.eigvalsh` on the `HAMILTONIAN_COEFFS` of
 `vqe_h2.py`: eigenvalues `[-1.4556, -0.7432, -0.6361, -0.4073]`. **-1.1372 Hartree
@@ -1269,7 +1269,7 @@ was measured — an exact reproduction of the bug.
 Braket and Qiskit use opposite bit-ordering conventions: Braket puts qubit 0 in the
 leftmost bit of the counts string, Qiskit in the rightmost. `aws.py`/`ionq.py` built
 the keys by joining the bits in Braket's native order without reversing them. This
-is exactly bug #1 of the supervisor's review. It had stayed invisible because every
+is exactly bug #1 of the external review. It had stayed invisible because every
 previous benchmark (Bell `00`/`11`, GHZ `000`/`111`, the old VQE `00`/`11`) has
 **palindromic** dominant states — reversing the string maps them onto themselves.
 The new, correct VQE ansatz has dominant state `01`, **asymmetric**, which made the
@@ -1395,8 +1395,14 @@ character** key instead of `01`. This was not the main facet of the endianness b
 samples only the qubits that appear in the circuit, so an inactive qubit is omitted
 from the counts string.
 
-> **Note (21 August 2026):** the suite has grown since — it is 24 tests today, the
-> extra ones covering the measurement-map rejection described in the next paragraph.
+> **Note (21 August 2026):** the suite has grown well past this — the original 18
+> became 24 with the measurement-map rejection described in the next paragraph, and
+> 52 once the scheduling arithmetic, the n-qubit GHZ metric and the CLI argument
+> checks got tests of their own. Rather than keep patching this number, the count
+> is deliberately not quoted in the README: run
+> `python -m unittest discover -s tests` and it will tell you. A number in prose
+> that has to be maintained by hand is a number that will eventually be wrong —
+> this note has already been wrong once.
 
 **Why it happens:**
 Facet 1a had been declared "open, relevant only to custom QASM" in the previous
