@@ -36,3 +36,6 @@ ARTICLE.html
 # Review reports and scratch
 REVIEW_*.md
 _to_delete/
+
+# Archives produced by `git archive` for sending the project to someone
+*.zip
