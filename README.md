@@ -258,6 +258,19 @@ Pass any `.qasm` file and let the orchestrator handle provider selection, queue 
 
 ---
 
+## Decision log
+
+`Technical_Decisions_Log.md` is the working record kept while building this — 37
+dated entries covering why each technical choice was made, what was observed that
+led there, and what had to be withdrawn afterwards. It is a raw document, not a
+polished one, and it is in the repo because the honest half of this project lives
+there: the mis-transcribed Hamiltonian, the endianness bug a symmetric metric could
+not see, the conclusions published and then retracted, and the reasoning that
+replaced them. If you want to know why something in `src/` is the way it is, that
+file is the answer.
+
+---
+
 ## Background
 
 This project empirically validates the architectural claims of the thesis *"Perspectives of Quantum Computing in the Architecture of Information Systems and in the Balancing between Cloud and Local Services"* (Bitocchi, University of Perugia, 2026).
