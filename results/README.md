@@ -37,7 +37,10 @@ Two things to know before reading it as a dataset:
 - **A `noisy_simulator` entry is not always a simulator run by choice.** When IBM
   is unreachable or the queue exceeds the fallback threshold, the `ibm_qpu` slot
   falls back to the noisy simulator, so a full run can log two `noisy_simulator`
-  lines. Group by backend with that in mind.
+  lines. Records written from 24 August 2026 onwards carry a `fallback_from`
+  field in that case, naming the backend that was requested — filter on it to
+  separate stand-ins from simulator runs somebody chose. Earlier records have no
+  such field, so for those, group by backend with the double-entry in mind.
 
 The 3,645-second queue measurement that the queue-to-execution figure is built on
 predates this log file (29 June 2026) and is recorded in commit `86ab7ae` rather

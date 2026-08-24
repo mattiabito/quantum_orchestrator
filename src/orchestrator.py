@@ -22,7 +22,68 @@ import datetime
 import os
 import json
 
-QUEUE_MULTIPLIER = 20  # fallback if queue > multiplier * estimated exec
+QUEUE_MULTIPLIER        = 20    # fall back if queue > multiplier * estimated exec
+SECONDS_PER_PENDING_JOB = 60    # crude conversion from IBM's pending_jobs count
+
+
+# ─────────────────────────────────────────
+# SCHEDULING ARITHMETIC
+# The fallback decision is three small pure functions rather than expressions
+# buried inside select_backend, so it can be tested without an IBM connection —
+# it is the piece of behaviour the project actually claims (a threshold
+# proportional to the submitted circuit, not a fixed cutoff).
+# ─────────────────────────────────────────
+
+def queue_estimate_s(pending_jobs: int) -> float:
+    """
+    Converts IBM's pending_jobs count into a queue estimate, one minute per job.
+
+    Deliberately crude, and known to be wrong in the tail: a single pending job
+    once preceded a 3645 s wait. It is the only queue signal the API exposes, so
+    the scheduler uses it while never trusting it as an absolute predictor —
+    which is why the threshold below is proportional and an absolute timeout
+    backstops every attempt.
+    """
+    return pending_jobs * SECONDS_PER_PENDING_JOB
+
+
+def fallback_threshold_s(estimated_exec_s: float) -> float:
+    """
+    The queue time above which waiting stops being worth it, expressed as a
+    multiple of how long the job itself is expected to take. Proportional by
+    design: an absolute cutoff would be arbitrary given how unreliable the
+    queue signal is.
+    """
+    return QUEUE_MULTIPLIER * estimated_exec_s
+
+
+def should_fall_back(pending_jobs: int, estimated_exec_s: float) -> bool:
+    """True when the estimated queue exceeds the proportional threshold."""
+    return queue_estimate_s(pending_jobs) > fallback_threshold_s(estimated_exec_s)
+
+
+def _no_qpu(strategy: str, reason: str):
+    """
+    Decides what to do when the real QPU cannot be reached at all — a different
+    situation from a queue that is merely too long.
+
+    'accurate' exists precisely to mean "only hardware fidelity will do", so
+    substituting a simulator for it would answer a question the caller did not
+    ask, and the substituted number would then sit in the log looking like every
+    other row. It returns nothing instead, and the caller skips that backend.
+
+    'responsive' and 'adaptive' do fall back — that is their documented job —
+    but the resulting adapter is tagged, so the log records that this row is a
+    stand-in rather than a simulator run somebody chose.
+    """
+    if strategy == "accurate":
+        print(f"[ORCHESTRATOR] {reason} — 'accurate' will not substitute a "
+              f"simulator for hardware. Skipping the QPU backend.")
+        return None
+
+    print(f"[ORCHESTRATOR] {reason} — falling back to noisy simulator "
+          f"(strategy: {strategy})")
+    return IBMSimulatorAdapter(noisy=True, fallback_from="ibm_qpu")
 
 
 def select_backend(preference="ideal_simulator", strategy="responsive", circuit=None):
@@ -57,17 +118,16 @@ def select_backend(preference="ideal_simulator", strategy="responsive", circuit=
     elif preference == "ibm_qpu":
         service = connect_ibm()
         if service is None:
-            print("[ORCHESTRATOR] IBM unreachable — falling back to noisy simulator")
-            return IBMSimulatorAdapter(noisy=True)
+            return _no_qpu(strategy, "IBM unreachable (credentials or network)")
 
         backend, estimated_exec_s, pending = pick_best_ibm_backend(service, circuit=circuit)
 
         if backend is None:
-            print("[ORCHESTRATOR] No backend available — falling back to noisy simulator")
-            return IBMSimulatorAdapter(noisy=True)
+            return _no_qpu(strategy, "no operational IBM backend available")
 
-        queue_s   = pending * 60
-        threshold = QUEUE_MULTIPLIER * estimated_exec_s
+        queue_s   = queue_estimate_s(pending)
+        threshold = fallback_threshold_s(estimated_exec_s)
+        too_long  = should_fall_back(pending, estimated_exec_s)
 
         exec_source = "from circuit" if circuit is not None else "no circuit given, fallback constant"
         print(f"[ORCHESTRATOR] Strategy: {strategy.upper()}")
@@ -75,9 +135,9 @@ def select_backend(preference="ideal_simulator", strategy="responsive", circuit=
         print(f"[ORCHESTRATOR] Estimated queue: {queue_s}s, threshold: {threshold}s")
 
         if strategy == "responsive":
-            if queue_s > threshold:
+            if too_long:
                 print(f"[ORCHESTRATOR] Queue too long — falling back to noisy simulator")
-                return IBMSimulatorAdapter(noisy=True)
+                return IBMSimulatorAdapter(noisy=True, fallback_from="ibm_qpu")
             print(f"[ORCHESTRATOR] Queue acceptable — selected: {backend.name}")
             return IBMQPUAdapter(backend, service, queue_estimate_s=queue_s)
 
@@ -86,15 +146,15 @@ def select_backend(preference="ideal_simulator", strategy="responsive", circuit=
             return IBMQPUAdapter(backend, service, queue_estimate_s=queue_s)
 
         elif strategy == "adaptive":
-            if queue_s > threshold:
+            if too_long:
                 print(f"[ORCHESTRATOR] Queue long ({queue_s}s) — will attempt QPU "
                       f"with {ABSOLUTE_TIMEOUT_S//60}min timeout before fallback")
             return IBMQPUAdapterAdaptive(backend, service, queue_estimate_s=queue_s)
 
         else:
             print(f"[ORCHESTRATOR] Unknown strategy '{strategy}' — using responsive")
-            if queue_s > threshold:
-                return IBMSimulatorAdapter(noisy=True)
+            if too_long:
+                return IBMSimulatorAdapter(noisy=True, fallback_from="ibm_qpu")
             return IBMQPUAdapter(backend, service, queue_estimate_s=queue_s)
 
     else:
@@ -140,7 +200,14 @@ def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict | None:
     if the backend failed and was skipped (see the RuntimeError branch below).
 
     fidelity_fn: optional custom fidelity function — defaults to Bell state fidelity.
+
+    adapter may be None when the requested backend could not be provided at all
+    (see _no_qpu) — there is nothing to run, and the caller skips it.
     """
+    if adapter is None:
+        print(f"\n--- Skipping job — requested backend unavailable ---")
+        return None
+
     print(f"\n--- Running job ---")
     print(f"Backend: {adapter.name}")
     print(f"Shots:   {shots}")
@@ -170,6 +237,16 @@ def run_job(adapter, circuit, shots=1024, fidelity_fn=None) -> dict | None:
     # the estimate and the outcome are not the same quantity.
     result["queue_estimate_s"] = adapter.estimated_queue_s()
     result["timestamp"]        = datetime.datetime.now().isoformat()
+
+    # If this backend is standing in for another, say so in the record. Without
+    # it a fallback row is indistinguishable from a simulator run somebody chose
+    # — and a full benchmark then logs two identical-looking noisy_simulator
+    # lines, which quietly double-counts in any per-backend aggregation.
+    substituting = getattr(adapter, "fallback_from", None)
+    if substituting:
+        result["fallback_from"] = substituting
+        print(f"NOTE:           this row substitutes for '{substituting}' "
+              f"— not the backend that was requested")
 
     print(f"Counts:         {result['counts']}")
     print(f"Fidelity:       {result['fidelity'] * 100:.2f}%")
@@ -363,7 +440,7 @@ if __name__ == "__main__":
             """Runs both bases on one backend, returns the Z-basis log with
             full and Z-diagonal energy attached (or None if unavailable, or
             if the QPU job itself failed/timed out — see run_job)."""
-            if not adapter.is_available():
+            if adapter is None or not adapter.is_available():
                 return None
             log_z = run_job(adapter, vqe_z, shots=args.shots,
                             fidelity_fn=compute_fidelity_vqe)

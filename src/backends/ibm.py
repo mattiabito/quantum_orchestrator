@@ -188,11 +188,23 @@ def _run_on_qpu(circuit, backend, backend_name, shots, timeout_s=ABSOLUTE_TIMEOU
 class IBMSimulatorAdapter(BackendAdapter):
     """Local Aer simulator — ideal or noisy."""
 
-    def __init__(self, noisy: bool = False):
+    def __init__(self, noisy: bool = False, fallback_from: str = None):
         self._noisy   = noisy
         self._backend = AerSimulator(
             noise_model=self._build_noise_model() if noisy else None
         )
+        # Set when this simulator is standing in for a backend the caller
+        # actually asked for. A substituted result is still a real simulator
+        # result, but it is not the measurement that was requested, and the
+        # difference has to survive into the log — otherwise a fallback is
+        # indistinguishable from a deliberate simulator run once the console
+        # output has scrolled away.
+        self._fallback_from = fallback_from
+
+    @property
+    def fallback_from(self):
+        """The backend this adapter is substituting for, or None."""
+        return self._fallback_from
 
     @staticmethod
     def _build_noise_model():

@@ -80,7 +80,7 @@ python src/vqe_energy_convergence.py
 ```
 
 ### Tests
-A minimal test suite (no extra dependencies, uses the standard-library `unittest`) locks in the fidelity metrics, the VQE physics (`eigvalsh(H)[0] ≈ exact ground energy`), and the Qiskit↔Braket bit-order round-trip on an asymmetric circuit.
+A regression suite (no extra dependencies, uses the standard-library `unittest`) covering four things that have each been wrong at some point: the fidelity metrics, the VQE physics (`eigvalsh(H)[0] ≈ exact ground energy`), the Qiskit↔Braket bit-order round-trip on an asymmetric circuit, and the scheduling arithmetic — that the fallback threshold really is a multiple of a per-circuit execution estimate, and not a fixed cutoff.
 ```bash
 python -m unittest discover -s tests
 ```
@@ -184,8 +184,12 @@ IBM_INSTANCE=your_instance_name
 | Strategy | Behavior | Best for |
 |---|---|---|
 | `responsive` | Fallback immediately if estimated queue exceeds threshold | Interactive apps, fast testing |
-| `accurate` | Always wait for real QPU, never fallback | Research, benchmark runs |
+| `accurate` | Never substitutes a simulator for hardware — not on a long queue, not on failure, not even if the provider is unreachable. Skips the backend instead. | Research, benchmark runs |
 | `adaptive` | Wait up to 30 minutes, then fallback to noisy simulator | Batch jobs, overnight runs |
+
+Whenever a fallback does happen, the log record carries a `fallback_from` field naming
+the backend that was actually requested — a substituted result never looks like the
+result you asked for.
 
 ```python
 # Change strategy based on your use case. Pass the circuit so the fallback
@@ -220,7 +224,7 @@ src/
     bell.py    — Bell state (2 qubits) — base validation
     ghz.py     — GHZ state (3 qubits) — medium complexity
     vqe_h2.py  — VQE H₂ molecule — real use case
-tests/     — regression suite (fidelity metrics, VQE physics, Qiskit↔Braket round-trip)
+tests/     — regression suite (fidelity metrics, VQE physics, Qiskit↔Braket round-trip, scheduling)
 examples/  — bell.qasm, a ready-to-run circuit for the --qasm path
 results/   — generated figures and NDJSON logs (only the published figures are tracked)
 ```
@@ -254,7 +258,7 @@ Pass any `.qasm` file and let the orchestrator handle provider selection, queue 
 - [x] Reference replica benchmark (`replicas.py`) — every table number reproducible with one command
 - [x] Systematic benchmark across all circuits and backends, including replicated real-QPU measurements
 - [x] VQE H₂ energy to chemical accuracy (Z + X basis) with energy-vs-shots convergence analysis
-- [x] Minimal regression test suite (fidelity, VQE physics, Qiskit↔Braket bit-order)
+- [x] Regression test suite (fidelity, VQE physics, Qiskit↔Braket bit-order, scheduling arithmetic)
 
 ---
 
