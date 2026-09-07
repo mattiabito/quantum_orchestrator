@@ -2,6 +2,10 @@
 
 An open source CLI tool that accepts any quantum circuit built from standard gates, autonomously selects the best available backend across IBM Quantum, AWS Braket and IonQ, executes the job with automatic fallback, and returns fidelity measurements and comparison graphs.
 
+![On a real quantum computer the computation is the cheap part: 2 seconds of quantum execution against 3,645 seconds waiting in the shared queue, a 1822 to 1 ratio](results/queue_vs_execution.png)
+
+*One job, one real IBM QPU. Two seconds of quantum execution, sixty-one minutes in the queue. Measured, not estimated — the data behind this figure is in [Results](#results).*
+
 ## Motivation
 
 Most quantum computing literature describes backend selection, noise impact, and hybrid fallback strategies conceptually. This project implements and **measures** them, producing real comparative data across providers.
@@ -120,6 +124,10 @@ finding below.
 | aws_local_simulator | 100.00% | 0s | 0.04s |
 | ionq_simulator | 98.12% ± 0.42% (n=100) | 0s | 0.8s |
 
+![Bell and GHZ mean fidelity from 128 to 4096 shots, 10 replicas per point with standard-deviation error bars](results/shots_efficiency.png)
+
+*Fidelity does not improve with more shots — it converges. Past a few hundred shots the mean is flat and only the run-to-run spread keeps shrinking, which is why the tables above quote a spread and a replica count rather than a single number.*
+
 ### VQE H₂ (2 qubits — full ground-state energy, Z + X basis)
 
 Energy from n=100 replicas at 1024 shots for the local simulators. The real-QPU
@@ -143,7 +151,9 @@ sixty times larger than that standard error: more shots shrink the spread but do
 not move the offset, cleanly separating statistical shot noise (∝ 1/√shots) from
 systematic noise-model bias. IonQ's bias (~13 mHa) is smaller than IBM's
 noisy-model bias (~50 mHa), consistent with IonQ's more optimistic noise model.
-See `results/vqe_energy_convergence.png`.
+![VQE H2 energy against shot count for the three local backends, from 128 to 8192 shots, 10 replicas per point with standard-deviation error bars](results/vqe_energy_convergence.png)
+
+*Statistical error against systematic error. More shots shrink the error bars on every curve, but the noisy and IonQ curves stay parked at their own offset: only the noiseless backend settles inside the chemical-accuracy band.*
 
 Note that a *single* run never reaches chemical accuracy at any shot count tested:
 the per-run spread stays above 1.6 mHa even at 8192 shots. The ansatz reaches the
@@ -203,6 +213,8 @@ adapter = select_backend("ibm_qpu", strategy="accurate", circuit=my_circuit)
 ## Architecture
 
 The orchestrator uses a plugin architecture based on an abstract `BackendAdapter` class. Every provider implements the same interface — the orchestrator never knows which provider it is talking to.
+
+![Provider-agnostic architecture: the orchestrator talks only to the BackendAdapter interface, which five adapters implement — ideal simulator, noisy simulator, IBM QPU, AWS local simulator and IonQ trapped-ion simulator](results/architecture.png)
 
 ```
 src/

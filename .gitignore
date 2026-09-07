@@ -38,3 +38,6 @@ _to_delete/
 
 # Archives produced by `git archive` for sending the project to someone
 *.zip
+
+# Files delivered into the chat by the assistant — not repo content
+Claude outputs/
